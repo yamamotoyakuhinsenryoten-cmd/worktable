@@ -39,3 +39,4 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+credentials/mountain-book-dyeshop-8fa756f38c7c.json
