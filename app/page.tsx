@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type Message = {
   id: number;
@@ -42,6 +42,8 @@ export default function Home() {
   const [registrationMessage, setRegistrationMessage] = useState("");
   const [isAddingMedia, setIsAddingMedia] = useState(false);
   const [mediaMessage, setMediaMessage] = useState("");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // 保存済みデータを読み込む
   useEffect(() => {
@@ -116,6 +118,13 @@ export default function Home() {
   const activeSession = sessions.find(
     (session) => session.id === activeSessionId,
   );
+
+  //最新メッセージまで自動スクロール
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({
+      behavior: "auto",
+    });
+  }, [activeSessionId]);
 
   // 新しいセッションを作る
   const handleCreateSession = async () => {
@@ -580,7 +589,7 @@ export default function Home() {
   return (
     <main className="flex h-screen bg-zinc-100 text-zinc-900">
       {/* 左：セッション一覧 */}
-      <aside className="flex w-64 flex-col border-r border-zinc-200 bg-white">
+      <aside className="hidden w-64 flex-col border-r border-zinc-200 bg-white md:flex">
         <div className="border-b border-zinc-200 p-4">
           <h1 className="text-lg font-semibold">Worktable</h1>
         </div>
@@ -667,10 +676,17 @@ export default function Home() {
       </aside>
 
       {/* 右：作業スペース */}
-      <section className="flex min-w-0 flex-1 flex-col">
+      <section className="flex min-h-0 min-w-0 flex-1 flex-col">
         {/* ヘッダー */}
-        <header className="border-b border-zinc-200 bg-white px-6 py-4">
-          <div className="flex items-center justify-between gap-4">
+        <header className="border-b border-zinc-200 bg-white px-4 py-3 md:px-6 md:py-4">
+          <div className="flex items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => setIsSidebarOpen(true)}
+              className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100 md:hidden"
+            >
+              ☰
+            </button>
             <div className="min-w-0 flex-1">
               <h2 className="font-medium">{activeSession?.title ?? "作業"}</h2>
 
@@ -734,7 +750,7 @@ export default function Home() {
         </header>
 
         {/* メッセージ */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
           <div className="mx-auto max-w-3xl space-y-4">
             {activeSession?.messages.length === 0 ? (
               <div className="flex min-h-[400px] items-center justify-center text-center text-zinc-400">
@@ -766,7 +782,6 @@ export default function Home() {
                 <pre className="whitespace-pre-wrap text-sm leading-7">
                   {generatedLog}
                 </pre>
-
                 <div className="mt-6 flex items-center gap-4">
                   <button
                     type="button"
@@ -799,31 +814,36 @@ export default function Home() {
                 </div>
               </div>
             )}
+            <div ref={messagesEndRef} />
           </div>
         </div>
 
         {/* 入力 */}
-        <div className="border-t border-zinc-200 bg-white p-4">
+        <div className="shrink-0 border-t border-zinc-200 bg-white p-3 md:p-4">
           <div className="mx-auto flex max-w-3xl flex-col gap-2">
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
+                  if (window.innerWidth < 768) {
+                    return;
+                  }
+
                   event.preventDefault();
                   handleSend();
                 }
               }}
               placeholder="ここに雑に書く……"
               disabled={isAskingAI}
-              className="min-h-12 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 text-sm outline-none focus:border-zinc-500 disabled:bg-zinc-100"
+              className="min-h-12 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 text-base outline-none focus:border-zinc-500 disabled:bg-zinc-100 md:text-sm"
             />
 
-            <div className="flex justify-end gap-2">
+            <div className="flex gap-2">
               <button
                 onClick={handleAskAI}
                 disabled={isAskingAI || !input.trim()}
-                className="rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex-1 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isAskingAI ? "考え中…" : "AIに聞く"}
               </button>
@@ -831,7 +851,7 @@ export default function Home() {
               <button
                 onClick={handleSend}
                 disabled={isAskingAI || !input.trim()}
-                className="rounded-xl bg-zinc-900 px-5 py-2 text-sm text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex-1 rounded-xl bg-zinc-900 px-5 py-2 text-sm text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 送る
               </button>
@@ -839,6 +859,66 @@ export default function Home() {
           </div>
         </div>
       </section>
+      {isSidebarOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          {/* 背景 */}
+          <button
+            type="button"
+            aria-label="メニューを閉じる"
+            onClick={() => setIsSidebarOpen(false)}
+            className="absolute inset-0 bg-black/30"
+          />
+
+          {/* サイドバー */}
+          <aside className="relative z-10 flex h-full w-72 flex-col bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-zinc-200 p-4">
+              <h1 className="text-lg font-semibold">Worktable</h1>
+
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(false)}
+                className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="p-3">
+              <button
+                type="button"
+                onClick={() => {
+                  handleCreateSession();
+                  setIsSidebarOpen(false);
+                }}
+                className="w-full rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white"
+              >
+                ＋ 新しい作業
+              </button>
+            </div>
+
+            <nav className="space-y-1 overflow-y-auto px-3">
+              {sessions.map((session) => (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveSessionId(session.id);
+                    setEditingTitleSessionId(null);
+                    setIsSidebarOpen(false);
+                  }}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                    session.id === activeSessionId
+                      ? "bg-zinc-100 font-medium"
+                      : "hover:bg-zinc-100"
+                  }`}
+                >
+                  {session.title}
+                </button>
+              ))}
+            </nav>
+          </aside>
+        </div>
+      )}
     </main>
   );
 }
