@@ -43,7 +43,15 @@ export default function Home() {
   const [isAddingMedia, setIsAddingMedia] = useState(false);
   const [mediaMessage, setMediaMessage] = useState("");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [contextMenuSessionId, setContextMenuSessionId] = useState<
+    number | null
+  >(null);
+
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const latestAssistantRef = useRef<HTMLDivElement>(null);
+  const pendingScrollRef = useRef<"bottom" | "assistant" | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 保存済みデータを読み込む
   useEffect(() => {
@@ -121,10 +129,28 @@ export default function Home() {
 
   //最新メッセージまで自動スクロール
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({
-      behavior: "auto",
-    });
-  }, [activeSessionId]);
+    const mode = pendingScrollRef.current;
+
+    if (!mode) return;
+
+    const container = messagesContainerRef.current;
+
+    if (!container) return;
+
+    if (mode === "bottom") {
+      container.scrollTop = container.scrollHeight;
+    }
+
+    if (mode === "assistant") {
+      const assistant = latestAssistantRef.current;
+
+      if (!assistant) return;
+
+      container.scrollTop = assistant.offsetTop - container.offsetTop;
+    }
+
+    pendingScrollRef.current = null;
+  }, [activeSession?.messages.length]);
 
   // 新しいセッションを作る
   const handleCreateSession = async () => {
@@ -247,8 +273,9 @@ export default function Home() {
           };
         }),
       );
-
       setInput("");
+
+      pendingScrollRef.current = "bottom";
     } catch (error) {
       console.error(error);
     }
@@ -364,6 +391,7 @@ export default function Home() {
           };
         }),
       );
+      pendingScrollRef.current = "assistant";
     } catch (error) {
       console.error(error);
 
@@ -587,7 +615,7 @@ export default function Home() {
   };
 
   return (
-    <main className="flex h-screen bg-zinc-100 text-zinc-900">
+    <main className="flex h-dvh bg-zinc-100 text-zinc-900">
       {/* 左：セッション一覧 */}
       <aside className="hidden w-64 flex-col border-r border-zinc-200 bg-white md:flex">
         <div className="border-b border-zinc-200 p-4">
@@ -683,15 +711,17 @@ export default function Home() {
             <button
               type="button"
               onClick={() => setIsSidebarOpen(true)}
-              className="rounded-lg p-2 text-zinc-600 hover:bg-zinc-100 md:hidden"
+              className="rounded-lg p-3 text-xl text-zinc-600 hover:bg-zinc-100 md:hidden"
             >
               ☰
             </button>
             <div className="min-w-0 flex-1">
-              <h2 className="font-medium">{activeSession?.title ?? "作業"}</h2>
+              <h2 className="text-sm font-medium">
+                {activeSession?.title ?? "作業"}
+              </h2>
 
               {activeSession && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-3 hidden flex-wrap items-center gap-2 md:flex">
                   <select
                     value={activeSession.logType}
                     onChange={(event) => {
@@ -742,7 +772,7 @@ export default function Home() {
                 !activeSession ||
                 activeSession.messages.length === 0
               }
-              className="shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="hidden shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isGeneratingLog ? "生成中…" : "ログを生成"}
             </button>
@@ -750,7 +780,10 @@ export default function Home() {
         </header>
 
         {/* メッセージ */}
-        <div className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
+        <div
+          ref={messagesContainerRef}
+          className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6"
+        >
           <div className="mx-auto max-w-3xl space-y-4">
             {activeSession?.messages.length === 0 ? (
               <div className="flex min-h-[400px] items-center justify-center text-center text-zinc-400">
@@ -762,16 +795,23 @@ export default function Home() {
                 </div>
               </div>
             ) : (
-              activeSession?.messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`rounded-xl p-4 shadow-sm ${
-                    message.role === "assistant" ? "bg-zinc-200" : "bg-white"
-                  }`}
-                >
-                  {message.content}
-                </div>
-              ))
+              activeSession?.messages.map((message, index) => {
+                const isLatestAssistant =
+                  message.role === "assistant" &&
+                  index === activeSession.messages.length - 1;
+
+                return (
+                  <div
+                    key={message.id}
+                    ref={isLatestAssistant ? latestAssistantRef : undefined}
+                    className={`rounded-xl p-3 text-sm shadow-sm ${
+                      message.role === "assistant" ? "bg-zinc-200" : "bg-white"
+                    }`}
+                  >
+                    {message.content}
+                  </div>
+                );
+              })
             )}
             {generatedLog && (
               <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
@@ -898,24 +938,117 @@ export default function Home() {
 
             <nav className="space-y-1 overflow-y-auto px-3">
               {sessions.map((session) => (
-                <button
-                  key={session.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveSessionId(session.id);
-                    setEditingTitleSessionId(null);
-                    setIsSidebarOpen(false);
-                  }}
-                  className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
-                    session.id === activeSessionId
-                      ? "bg-zinc-100 font-medium"
-                      : "hover:bg-zinc-100"
-                  }`}
-                >
-                  {session.title}
-                </button>
+                <div key={session.id}>
+                  {editingTitleSessionId === session.id ? (
+                    <div className="flex items-center gap-2 rounded-lg bg-zinc-100 p-2">
+                      <input
+                        type="text"
+                        value={titleInput}
+                        onChange={(event) => setTitleInput(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            saveTitle();
+                          }
+
+                          if (event.key === "Escape") {
+                            cancelEditingTitle();
+                          }
+                        }}
+                        autoFocus
+                        className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-zinc-500"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={saveTitle}
+                        className="shrink-0 rounded-lg px-2 py-2 text-zinc-600 hover:bg-white hover:text-zinc-900"
+                      >
+                        ✓
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={cancelEditingTitle}
+                        className="shrink-0 rounded-lg px-2 py-2 text-zinc-500 hover:bg-white"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveSessionId(session.id);
+                        setEditingTitleSessionId(null);
+                        setIsSidebarOpen(false);
+                      }}
+                      onTouchStart={() => {
+                        longPressTimerRef.current = setTimeout(() => {
+                          setContextMenuSessionId(session.id);
+                        }, 500);
+                      }}
+                      onTouchEnd={() => {
+                        if (longPressTimerRef.current) {
+                          clearTimeout(longPressTimerRef.current);
+                          longPressTimerRef.current = null;
+                        }
+                      }}
+                      onTouchMove={() => {
+                        if (longPressTimerRef.current) {
+                          clearTimeout(longPressTimerRef.current);
+                          longPressTimerRef.current = null;
+                        }
+                      }}
+                      className={`w-full select-none rounded-lg px-3 py-3 text-left text-sm ${
+                        session.id === activeSessionId
+                          ? "bg-zinc-100 font-medium"
+                          : "hover:bg-zinc-100"
+                      }`}
+                    >
+                      {session.title}
+                    </button>
+                  )}
+                </div>
               ))}
             </nav>
+            {contextMenuSessionId !== null && (
+              <div className="border-t border-zinc-200 p-3">
+                <div className="mb-2 text-xs text-zinc-500">
+                  {
+                    sessions.find(
+                      (session) => session.id === contextMenuSessionId,
+                    )?.title
+                  }
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const session = sessions.find(
+                      (session) => session.id === contextMenuSessionId,
+                    );
+
+                    if (!session) return;
+
+                    startEditingTitle(session);
+                    setContextMenuSessionId(null);
+                  }}
+                  className="w-full rounded-lg px-3 py-3 text-left text-sm hover:bg-zinc-100"
+                >
+                  名前を変更
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContextMenuSessionId(null);
+                  }}
+                  className="mt-1 w-full rounded-lg px-3 py-3 text-left text-sm text-zinc-500 hover:bg-zinc-100"
+                >
+                  キャンセル
+                </button>
+              </div>
+            )}
           </aside>
         </div>
       )}
