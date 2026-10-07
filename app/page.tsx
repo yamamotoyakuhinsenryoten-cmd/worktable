@@ -36,6 +36,7 @@ export default function Home() {
   >(null);
   const [titleInput, setTitleInput] = useState("");
   const [isAskingAI, setIsAskingAI] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [isGeneratingLog, setIsGeneratingLog] = useState(false);
   const [generatedLog, setGeneratedLog] = useState("");
   const [isRegisteringLog, setIsRegisteringLog] = useState(false);
@@ -46,6 +47,7 @@ export default function Home() {
   const [contextMenuSessionId, setContextMenuSessionId] = useState<
     number | null
   >(null);
+  const [inputMode, setInputMode] = useState<"talk" | "write">("talk");
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -54,6 +56,7 @@ export default function Home() {
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // 保存済みデータを読み込む
+  // 保存済みセッションを読み込む
   useEffect(() => {
     const loadSessions = async () => {
       try {
@@ -65,49 +68,21 @@ export default function Home() {
 
         const data = await response.json();
 
-        const loadedSessions: Session[] = await Promise.all(
-          data.sessions.map(
-            async (session: {
-              id: number;
-              title: string;
-              log_type: "work" | "experience" | "development";
-              slug: string;
-              log_generated: boolean;
-            }) => {
-              const messagesResponse = await fetch(
-                `/api/sessions/${session.id}/messages`,
-              );
-
-              if (!messagesResponse.ok) {
-                throw new Error(
-                  `Session ${session.id} のメッセージ取得に失敗しました`,
-                );
-              }
-
-              const messagesData = await messagesResponse.json();
-
-              const messages: Message[] = messagesData.messages.map(
-                (message: {
-                  id: number;
-                  role: "user" | "assistant";
-                  content: string;
-                }) => ({
-                  id: message.id,
-                  role: message.role,
-                  content: message.content,
-                }),
-              );
-
-              return {
-                id: session.id,
-                title: session.title,
-                logType: session.log_type,
-                slug: session.slug,
-                logGenerated: session.log_generated,
-                messages,
-              };
-            },
-          ),
+        const loadedSessions: Session[] = data.sessions.map(
+          (session: {
+            id: number;
+            title: string;
+            log_type: "work" | "experience" | "development";
+            slug: string;
+            log_generated: boolean;
+          }) => ({
+            id: session.id,
+            title: session.title,
+            logType: session.log_type,
+            slug: session.slug,
+            logGenerated: session.log_generated,
+            messages: [],
+          }),
         );
 
         setSessions(loadedSessions);
@@ -123,9 +98,56 @@ export default function Home() {
     loadSessions();
   }, []);
 
+  // アクティブなセッションを取得
   const activeSession = sessions.find(
     (session) => session.id === activeSessionId,
   );
+
+  // 選択したセッションのメッセージを読み込む
+  useEffect(() => {
+    if (activeSessionId === null) return;
+
+    const loadMessages = async () => {
+      try {
+        const response = await fetch(
+          `/api/sessions/${activeSessionId}/messages`,
+        );
+
+        if (!response.ok) {
+          throw new Error("メッセージの取得に失敗しました");
+        }
+
+        const data = await response.json();
+
+        const messages: Message[] = data.messages.map(
+          (message: {
+            id: number;
+            role: "user" | "assistant";
+            content: string;
+          }) => ({
+            id: message.id,
+            role: message.role,
+            content: message.content,
+          }),
+        );
+
+        setSessions((current) =>
+          current.map((session) =>
+            session.id === activeSessionId
+              ? {
+                  ...session,
+                  messages,
+                }
+              : session,
+          ),
+        );
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    loadMessages();
+  }, [activeSessionId]);
 
   //最新メッセージまで自動スクロール
   useEffect(() => {
@@ -233,7 +255,11 @@ export default function Home() {
   const handleSend = async () => {
     const content = input.trim();
 
-    if (!content || activeSessionId === null) return;
+    if (!content || activeSessionId === null || isSending || isAskingAI) {
+      return;
+    }
+
+    setIsSending(true);
 
     try {
       const response = await fetch("/api/messages", {
@@ -273,11 +299,13 @@ export default function Home() {
           };
         }),
       );
-      setInput("");
 
+      setInput("");
       pendingScrollRef.current = "bottom";
     } catch (error) {
       console.error(error);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -715,13 +743,12 @@ export default function Home() {
             >
               ☰
             </button>
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-medium">
+            <div className="flex min-w-0 items-center gap-3">
+              <h2 className="min-w-0 truncate text-sm font-medium">
                 {activeSession?.title ?? "作業"}
               </h2>
-
               {activeSession && (
-                <div className="mt-3 hidden flex-wrap items-center gap-2 md:flex">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <select
                     value={activeSession.logType}
                     onChange={(event) => {
@@ -763,8 +790,32 @@ export default function Home() {
                   />
                 </div>
               )}
-            </div>
+              <div className="flex shrink-0 rounded-lg bg-zinc-100 p-1">
+                <button
+                  type="button"
+                  onClick={() => setInputMode("talk")}
+                  className={`rounded-md px-3 py-1.5 text-xs ${
+                    inputMode === "talk"
+                      ? "bg-white font-medium text-zinc-900 shadow-sm"
+                      : "text-zinc-500"
+                  }`}
+                >
+                  話す
+                </button>
 
+                <button
+                  type="button"
+                  onClick={() => setInputMode("write")}
+                  className={`rounded-md px-3 py-1.5 text-xs ${
+                    inputMode === "write"
+                      ? "bg-white font-medium text-zinc-900 shadow-sm"
+                      : "text-zinc-500"
+                  }`}
+                >
+                  書く
+                </button>
+              </div>
+            </div>
             <button
               onClick={handleGenerateLog}
               disabled={
@@ -772,7 +823,7 @@ export default function Home() {
                 !activeSession ||
                 activeSession.messages.length === 0
               }
-              className="hidden shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="hidden md:block shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
             >
               {isGeneratingLog ? "生成中…" : "ログを生成"}
             </button>
@@ -804,7 +855,7 @@ export default function Home() {
                   <div
                     key={message.id}
                     ref={isLatestAssistant ? latestAssistantRef : undefined}
-                    className={`rounded-xl p-3 text-sm shadow-sm ${
+                    className={`whitespace-pre-wrap rounded-xl p-3 text-sm shadow-sm ${
                       message.role === "assistant" ? "bg-zinc-200" : "bg-white"
                     }`}
                   >
@@ -871,29 +922,26 @@ export default function Home() {
                   }
 
                   event.preventDefault();
-                  handleSend();
+
+                  if (inputMode === "talk") {
+                    handleAskAI();
+                  } else {
+                    handleSend();
+                  }
                 }
               }}
               placeholder="ここに雑に書く……"
-              disabled={isAskingAI}
+              disabled={isSending || isAskingAI}
               className="min-h-12 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 text-base outline-none focus:border-zinc-500 disabled:bg-zinc-100 md:text-sm"
             />
 
             <div className="flex gap-2">
               <button
-                onClick={handleAskAI}
-                disabled={isAskingAI || !input.trim()}
-                className="flex-1 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+                onClick={inputMode === "talk" ? handleAskAI : handleSend}
+                disabled={isSending || isAskingAI || !input.trim()}
+                className="w-full rounded-xl bg-zinc-900 px-5 py-2 text-sm text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {isAskingAI ? "考え中…" : "AIに聞く"}
-              </button>
-
-              <button
-                onClick={handleSend}
-                disabled={isAskingAI || !input.trim()}
-                className="flex-1 rounded-xl bg-zinc-900 px-5 py-2 text-sm text-white hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                送る
+                {isAskingAI || isSending ? "送信中…" : "送信"}
               </button>
             </div>
           </div>
