@@ -733,22 +733,50 @@ export default function Home() {
 
       {/* 右：作業スペース */}
       <section className="flex min-h-0 min-w-0 flex-1 flex-col">
-        {/* ヘッダー */}
+        {/* ヘッダー */}{" "}
         <header className="border-b border-zinc-200 bg-white px-4 py-3 md:px-6 md:py-4">
+          {" "}
           <div className="flex items-center justify-between gap-3">
-            <button
-              type="button"
-              onClick={() => setIsSidebarOpen(true)}
-              className="rounded-lg p-3 text-xl text-zinc-600 hover:bg-zinc-100 md:hidden"
-            >
-              ☰
-            </button>
-            <div className="flex min-w-0 items-center gap-3">
+            {" "}
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              {" "}
+              <button
+                type="button"
+                onClick={() => setIsSidebarOpen(true)}
+                className="shrink-0 rounded-lg p-2 text-xl text-zinc-600 hover:bg-zinc-100 md:hidden"
+                aria-label="メニューを開く"
+              >
+                {" "}
+                ☰{" "}
+              </button>{" "}
               <h2 className="min-w-0 truncate text-sm font-medium">
-                {activeSession?.title ?? "作業"}
-              </h2>
+                {" "}
+                {activeSession?.title ?? "作業"}{" "}
+              </h2>{" "}
+              {/* 話す／書く：タイトルの右側 */}{" "}
+              <div className="flex shrink-0 rounded-lg bg-zinc-100 p-1">
+                {" "}
+                <button
+                  type="button"
+                  onClick={() => setInputMode("talk")}
+                  className={`rounded-md px-3 py-1.5 text-xs ${inputMode === "talk" ? "bg-white font-medium text-zinc-900 shadow-sm" : "text-zinc-500"}`}
+                >
+                  {" "}
+                  話す{" "}
+                </button>{" "}
+                <button
+                  type="button"
+                  onClick={() => setInputMode("write")}
+                  className={`rounded-md px-3 py-1.5 text-xs ${inputMode === "write" ? "bg-white font-medium text-zinc-900 shadow-sm" : "text-zinc-500"}`}
+                >
+                  {" "}
+                  書く{" "}
+                </button>{" "}
+              </div>{" "}
+              {/* type／slug：PCのみ表示 */}{" "}
               {activeSession && (
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="hidden items-center gap-2 lg:flex">
+                  {" "}
                   <select
                     value={activeSession.logType}
                     onChange={(event) => {
@@ -756,7 +784,6 @@ export default function Home() {
                         | "work"
                         | "experience"
                         | "development";
-
                       setSessions((current) =>
                         current.map((session) =>
                           session.id === activeSessionId
@@ -767,16 +794,15 @@ export default function Home() {
                     }}
                     className="rounded-md border border-zinc-300 px-2 py-1 text-sm"
                   >
-                    <option value="work">work</option>
-                    <option value="experience">experience</option>
-                    <option value="development">development</option>
-                  </select>
-
+                    {" "}
+                    <option value="work">work</option>{" "}
+                    <option value="experience">experience</option>{" "}
+                    <option value="development">development</option>{" "}
+                  </select>{" "}
                   <input
                     value={activeSession.slug}
                     onChange={(event) => {
                       const slug = event.target.value;
-
                       setSessions((current) =>
                         current.map((session) =>
                           session.id === activeSessionId
@@ -786,36 +812,11 @@ export default function Home() {
                       );
                     }}
                     placeholder="slug"
-                    className="w-64 rounded-md border border-zinc-300 px-3 py-1 text-sm outline-none focus:border-zinc-500"
-                  />
+                    className="w-48 rounded-md border border-zinc-300 px-3 py-1 text-sm outline-none focus:border-zinc-500"
+                  />{" "}
                 </div>
-              )}
-              <div className="flex shrink-0 rounded-lg bg-zinc-100 p-1">
-                <button
-                  type="button"
-                  onClick={() => setInputMode("talk")}
-                  className={`rounded-md px-3 py-1.5 text-xs ${
-                    inputMode === "talk"
-                      ? "bg-white font-medium text-zinc-900 shadow-sm"
-                      : "text-zinc-500"
-                  }`}
-                >
-                  話す
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setInputMode("write")}
-                  className={`rounded-md px-3 py-1.5 text-xs ${
-                    inputMode === "write"
-                      ? "bg-white font-medium text-zinc-900 shadow-sm"
-                      : "text-zinc-500"
-                  }`}
-                >
-                  書く
-                </button>
-              </div>
-            </div>
+              )}{" "}
+            </div>{" "}
             <button
               onClick={handleGenerateLog}
               disabled={
@@ -823,13 +824,13 @@ export default function Home() {
                 !activeSession ||
                 activeSession.messages.length === 0
               }
-              className="hidden md:block shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40"
+              className="hidden shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 md:block"
             >
-              {isGeneratingLog ? "生成中…" : "ログを生成"}
-            </button>
-          </div>
+              {" "}
+              {isGeneratingLog ? "生成中…" : "ログを生成"}{" "}
+            </button>{" "}
+          </div>{" "}
         </header>
-
         {/* メッセージ */}
         <div
           ref={messagesContainerRef}
@@ -908,7 +909,6 @@ export default function Home() {
             <div ref={messagesEndRef} />
           </div>
         </div>
-
         {/* 入力 */}
         <div className="shrink-0 border-t border-zinc-200 bg-white p-3 md:p-4">
           <div className="mx-auto flex max-w-3xl flex-col gap-2">
