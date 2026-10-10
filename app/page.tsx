@@ -2,10 +2,16 @@
 
 import { useEffect, useRef, useState } from "react";
 
+type ChatSource = {
+  slug: string;
+  title: string;
+};
+
 type Message = {
   id: number;
   role: "user" | "assistant";
   content: string;
+  sources?: ChatSource[];
 };
 
 type Session = {
@@ -404,6 +410,14 @@ export default function Home() {
         id: assistantData.message.id,
         role: assistantData.message.role,
         content: assistantData.message.content,
+        sources: Array.isArray(data.sources)
+          ? data.sources.filter(
+              (source: unknown): source is ChatSource =>
+                !!source && typeof source === "object" &&
+                typeof (source as ChatSource).slug === "string" &&
+                typeof (source as ChatSource).title === "string",
+            )
+          : [],
       };
 
       // 画面にもAIの返答を追加
@@ -861,6 +875,27 @@ export default function Home() {
                     }`}
                   >
                     {message.content}
+                    {message.sources && message.sources.length > 0 && (
+                      <div className="mt-3 border-t border-zinc-300 pt-2">
+                        <p className="mb-1 text-xs font-medium text-zinc-600">
+                          参照したログ
+                        </p>
+                        <ul className="space-y-1">
+                          {message.sources.map((source) => (
+                            <li key={source.slug}>
+                              <a
+                                href={`https://mountain-book-dyeshop.vercel.app/logs/${encodeURIComponent(source.slug)}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-blue-700 underline underline-offset-2 hover:text-blue-900"
+                              >
+                                {source.title}
+                              </a>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 );
               })
