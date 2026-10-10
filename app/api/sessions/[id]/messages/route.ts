@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
+import { parseChatSources } from "@/lib/chat-sources";
 
 type RouteContext = {
   params: Promise<{
@@ -25,6 +26,7 @@ export async function GET(_request: Request, context: RouteContext) {
         session_id,
         content,
         role,
+        sources,
         created_at
       FROM messages
       WHERE session_id = ${sessionId}
@@ -32,7 +34,10 @@ export async function GET(_request: Request, context: RouteContext) {
     `;
 
     return NextResponse.json({
-      messages,
+      messages: messages.map((message) => ({
+        ...message,
+        sources: parseChatSources(message.sources) ?? [],
+      })),
     });
   } catch (error) {
     console.error("Messages GET error:", error);

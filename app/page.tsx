@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-type ChatSource = {
-  slug: string;
-  title: string;
-};
+import { parseChatSources, type ChatSource } from "@/lib/chat-sources";
 
 type Message = {
   id: number;
@@ -135,10 +131,12 @@ export default function Home() {
             id: number;
             role: "user" | "assistant";
             content: string;
+            sources?: unknown;
           }) => ({
             id: message.id,
             role: message.role,
             content: message.content,
+            sources: parseChatSources(message.sources) ?? [],
           }),
         );
 
@@ -427,6 +425,7 @@ export default function Home() {
           sessionId,
           content: data.content,
           role: "assistant",
+          sources: parseChatSources(data.sources) ?? [],
         }),
       });
 
@@ -440,14 +439,7 @@ export default function Home() {
         id: assistantData.message.id,
         role: assistantData.message.role,
         content: assistantData.message.content,
-        sources: Array.isArray(data.sources)
-          ? data.sources.filter(
-              (source: unknown): source is ChatSource =>
-                !!source && typeof source === "object" &&
-                typeof (source as ChatSource).slug === "string" &&
-                typeof (source as ChatSource).title === "string",
-            )
-          : [],
+        sources: parseChatSources(assistantData.message.sources) ?? [],
       };
 
       // 画面にもAIの返答を追加
