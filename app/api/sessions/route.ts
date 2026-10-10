@@ -13,7 +13,7 @@ export async function GET() {
         log_type,
         slug
       FROM sessions
-      ORDER BY created_at ASC
+      ORDER BY updated_at DESC, created_at DESC, id DESC
     `;
 
     return NextResponse.json({

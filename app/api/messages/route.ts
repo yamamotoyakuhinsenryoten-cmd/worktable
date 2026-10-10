@@ -28,23 +28,44 @@ export async function POST(request: Request) {
     }
 
     const messages = await sql`
-      INSERT INTO messages (
-        session_id,
-        content,
-        role
+      WITH updated_session AS (
+        UPDATE sessions
+        SET updated_at = NOW()
+        WHERE id = ${sessionId}
+        RETURNING id
+      ), inserted_message AS (
+        INSERT INTO messages (
+          session_id,
+          content,
+          role
+        )
+        SELECT
+          updated_session.id,
+          ${content},
+          ${role}
+        FROM updated_session
+        RETURNING
+          id,
+          session_id,
+          content,
+          role,
+          created_at
       )
-      VALUES (
-        ${sessionId},
-        ${content},
-        ${role}
-      )
-      RETURNING
+      SELECT
         id,
         session_id,
         content,
         role,
         created_at
+      FROM inserted_message
     `;
+
+    if (messages.length === 0) {
+      return NextResponse.json(
+        { error: "セッションが見つかりません" },
+        { status: 404 },
+      );
+    }
 
     return NextResponse.json({
       message: messages[0],

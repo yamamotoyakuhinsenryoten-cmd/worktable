@@ -33,6 +33,14 @@ function createTitle() {
   }).format(new Date());
 }
 
+function moveSessionToFront(sessions: Session[], sessionId: number) {
+  const index = sessions.findIndex((session) => session.id === sessionId);
+
+  if (index <= 0) return sessions;
+
+  return [sessions[index], ...sessions.slice(0, index), ...sessions.slice(index + 1)];
+}
+
 export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
@@ -93,9 +101,6 @@ export default function Home() {
 
         setSessions(loadedSessions);
 
-        if (loadedSessions.length > 0) {
-          setActiveSessionId(loadedSessions[0].id);
-        }
       } catch (error) {
         console.error(error);
       }
@@ -180,42 +185,58 @@ export default function Home() {
     pendingScrollRef.current = null;
   }, [activeSession?.messages.length]);
 
-  // 新しいセッションを作る
+  // 新しいセッションを作り、APIが返した情報を画面用の型にする
+  const createSession = async (): Promise<Session> => {
+    const response = await fetch("/api/sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        title: createTitle(),
+        logType: "work",
+        slug: "",
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error ?? "セッションの作成に失敗しました");
+    }
+
+    const session: Session = {
+      id: data.session.id,
+      title: data.session.title,
+      logType: data.session.log_type,
+      slug: data.session.slug,
+      logGenerated: data.session.log_generated,
+      messages: [],
+    };
+
+    return session;
+  };
+
+  // 一覧操作では従来どおり、その場で新規セッションを作る
   const handleCreateSession = async () => {
     try {
-      const response = await fetch("/api/sessions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          title: createTitle(),
-          logType: "work",
-          slug: "",
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error ?? "セッションの作成に失敗しました");
-      }
-
-      const session: Session = {
-        id: data.session.id,
-        title: data.session.title,
-        logType: data.session.log_type,
-        slug: data.session.slug,
-        logGenerated: data.session.log_generated,
-        messages: [],
-      };
-
-      setSessions((current) => [...current, session]);
+      const session = await createSession();
+      setSessions((current) => [session, ...current]);
       setActiveSessionId(session.id);
       setInput("");
     } catch (error) {
       console.error(error);
     }
+  };
+
+  // 初回メッセージの場合だけ、送信前にセッションを確保する
+  const ensureSessionForMessage = async () => {
+    if (activeSessionId !== null) return activeSessionId;
+
+    const session = await createSession();
+    setSessions((current) => [session, ...current]);
+    setActiveSessionId(session.id);
+    return session.id;
   };
 
   // ログ生成済みを切り替える
@@ -261,20 +282,21 @@ export default function Home() {
   const handleSend = async () => {
     const content = input.trim();
 
-    if (!content || activeSessionId === null || isSending || isAskingAI) {
+    if (!content || isSending || isAskingAI) {
       return;
     }
 
     setIsSending(true);
 
     try {
+      const sessionId = await ensureSessionForMessage();
       const response = await fetch("/api/messages", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sessionId: activeSessionId,
+          sessionId,
           content,
           role: "user",
         }),
@@ -286,9 +308,9 @@ export default function Home() {
         throw new Error(data.error ?? "メッセージの保存に失敗しました");
       }
 
-      setSessions((current) =>
-        current.map((session) => {
-          if (session.id !== activeSessionId) {
+      setSessions((current) => {
+        const updated = current.map((session) => {
+          if (session.id !== sessionId) {
             return session;
           }
 
@@ -303,8 +325,10 @@ export default function Home() {
               },
             ],
           };
-        }),
-      );
+        });
+
+        return moveSessionToFront(updated, sessionId);
+      });
 
       setInput("");
       pendingScrollRef.current = "bottom";
@@ -319,12 +343,14 @@ export default function Home() {
   const handleAskAI = async () => {
     const content = input.trim();
 
-    if (!content || activeSessionId === null || isAskingAI) return;
+    if (!content || isAskingAI || isSending) return;
 
-    setInput("");
     setIsAskingAI(true);
+    let messageSessionId: number | null = null;
 
     try {
+      const sessionId = await ensureSessionForMessage();
+      messageSessionId = sessionId;
       // ユーザーの発言をDBに保存
       const userResponse = await fetch("/api/messages", {
         method: "POST",
@@ -332,7 +358,7 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sessionId: activeSessionId,
+          sessionId,
           content,
           role: "user",
         }),
@@ -344,6 +370,8 @@ export default function Home() {
         throw new Error(userData.error ?? "メッセージの保存に失敗しました");
       }
 
+      setInput("");
+
       const userMessage: Message = {
         id: userData.message.id,
         role: userData.message.role,
@@ -351,9 +379,9 @@ export default function Home() {
       };
 
       // 画面にもユーザーの発言を追加
-      setSessions((current) =>
-        current.map((session) => {
-          if (session.id !== activeSessionId) {
+      setSessions((current) => {
+        const updated = current.map((session) => {
+          if (session.id !== sessionId) {
             return session;
           }
 
@@ -361,12 +389,14 @@ export default function Home() {
             ...session,
             messages: [...session.messages, userMessage],
           };
-        }),
-      );
+        });
+
+        return moveSessionToFront(updated, sessionId);
+      });
 
       // AIに送る会話
       const currentMessages =
-        sessions.find((session) => session.id === activeSessionId)?.messages ??
+        sessions.find((session) => session.id === sessionId)?.messages ??
         [];
 
       const messagesForAI = [...currentMessages, userMessage];
@@ -394,7 +424,7 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          sessionId: activeSessionId,
+          sessionId,
           content: data.content,
           role: "assistant",
         }),
@@ -421,9 +451,9 @@ export default function Home() {
       };
 
       // 画面にもAIの返答を追加
-      setSessions((current) =>
-        current.map((session) => {
-          if (session.id !== activeSessionId) {
+      setSessions((current) => {
+        const updated = current.map((session) => {
+          if (session.id !== sessionId) {
             return session;
           }
 
@@ -431,8 +461,10 @@ export default function Home() {
             ...session,
             messages: [...session.messages, assistantMessage],
           };
-        }),
-      );
+        });
+
+        return moveSessionToFront(updated, sessionId);
+      });
       pendingScrollRef.current = "assistant";
     } catch (error) {
       console.error(error);
@@ -445,7 +477,7 @@ export default function Home() {
 
       setSessions((current) =>
         current.map((session) => {
-          if (session.id !== activeSessionId) {
+          if (session.id !== messageSessionId) {
             return session;
           }
 
@@ -851,7 +883,7 @@ export default function Home() {
           className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6"
         >
           <div className="mx-auto max-w-3xl space-y-4">
-            {activeSession?.messages.length === 0 ? (
+            {!activeSession || activeSession.messages.length === 0 ? (
               <div className="flex min-h-[400px] items-center justify-center text-center text-zinc-400">
                 <div>
                   <p className="text-lg">ここに雑に置いていこう。</p>
