@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import type { ResponseInputItem, FunctionTool } from "openai/resources/responses/responses";
@@ -8,6 +9,10 @@ const MAX_TOOL_ROUNDS = 3;
 const MAX_TOOL_CALLS = 6;
 
 type ChatSource = { slug: string; title: string };
+
+function logChatDiagnostic(event: string, details: Record<string, unknown>, level: "info" | "error" = "info") {
+  console[level](`${event} ${JSON.stringify(details)}`);
+}
 
 const instructions = `あなたはWorktableの作業相手です。
 
@@ -56,7 +61,11 @@ function parseToolArguments(value: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-async function runTool(name: string, rawArguments: string): Promise<unknown> {
+async function runTool(
+  name: string,
+  rawArguments: string,
+  requestId: string,
+): Promise<unknown> {
   const args = parseToolArguments(rawArguments);
   if (name === "search_logs") {
     if (typeof args.query !== "string") throw new Error("invalid arguments");
@@ -70,16 +79,20 @@ async function runTool(name: string, rawArguments: string): Promise<unknown> {
       query: args.query,
       category: args.category as string | undefined,
       limit: Math.min((args.limit as number | undefined) ?? 8, 8),
+      requestId,
     });
   }
   if (name === "get_log") {
     if (typeof args.slug !== "string") throw new Error("invalid arguments");
-    return getLog(args.slug);
+    return getLog(args.slug, requestId);
   }
   throw new Error("unknown tool");
 }
 
 export async function POST(request: Request) {
+  const requestId = randomUUID();
+  let stage = "request_validation";
+
   try {
     const body: unknown = await request.json();
     if (!body || typeof body !== "object" || !Array.isArray((body as { messages?: unknown }).messages)) {
@@ -105,7 +118,16 @@ export async function POST(request: Request) {
     }));
     let toolCallsRun = 0;
     const sources: ChatSource[] = [];
+    stage = "openai_initial";
     let response = await openai.responses.create({ model: "gpt-6-luna", instructions, input, tools });
+    logChatDiagnostic("Chat OpenAI response received", {
+      requestId,
+      round: 0,
+      outputTypes: response.output.map((item) => item.type),
+      functionNames: response.output
+        .filter((item) => item.type === "function_call")
+        .map((item) => item.name),
+    });
 
     for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
       const calls = response.output.filter((item) => item.type === "function_call");
@@ -114,12 +136,27 @@ export async function POST(request: Request) {
       const outputs: ResponseInputItem[] = [];
       for (const call of calls) {
         toolCallsRun++;
+        logChatDiagnostic("Chat tool call received", {
+          requestId,
+          round: round + 1,
+          toolName: call.name,
+          toolCallNumber: toolCallsRun,
+        });
         let result: unknown;
         if (toolCallsRun > MAX_TOOL_CALLS) {
+          logChatDiagnostic("Chat tool call limit reached", { requestId, round: round + 1 }, "error");
           result = { error: "この回答で実行できるログ検索の上限に達しました" };
         } else {
           try {
-            result = await runTool(call.name, call.arguments);
+            stage = "tool_execution";
+            result = await runTool(call.name, call.arguments, requestId);
+            logChatDiagnostic("Chat tool call completed", {
+              requestId,
+              round: round + 1,
+              toolName: call.name,
+              resultType: Array.isArray(result) ? "array" : typeof result,
+              resultCount: Array.isArray(result) ? result.length : undefined,
+            });
             if (
               call.name === "get_log" && result && typeof result === "object" &&
               typeof (result as Record<string, unknown>).slug === "string" &&
@@ -130,7 +167,18 @@ export async function POST(request: Request) {
                 sources.push({ slug: source.slug, title: source.title });
               }
             }
-          } catch {
+          } catch (error) {
+            const diagnostic = error && typeof error === "object"
+              ? error as { name?: unknown; code?: unknown; statusCode?: unknown }
+              : {};
+            logChatDiagnostic("Chat tool call failed", {
+              requestId,
+              round: round + 1,
+              toolName: call.name,
+              errorName: typeof diagnostic.name === "string" ? diagnostic.name : "unknown",
+              errorCode: typeof diagnostic.code === "string" ? diagnostic.code : undefined,
+              statusCode: typeof diagnostic.statusCode === "number" ? diagnostic.statusCode : undefined,
+            }, "error");
             result = { error: "ログを取得できませんでした。設定、認証、接続先を確認してください" };
           }
         }
@@ -144,6 +192,7 @@ export async function POST(request: Request) {
       // Responses output items include a broader union than the input item type;
       // the returned items are valid for continuing this function-calling turn.
       input = [...input, ...(response.output as unknown as ResponseInputItem[]), ...outputs];
+      stage = "openai_followup";
       response = await openai.responses.create({
         model: "gpt-6-luna",
         instructions,
@@ -151,11 +200,34 @@ export async function POST(request: Request) {
         tools,
         ...(round === MAX_TOOL_ROUNDS - 1 ? { tool_choice: "none" as const } : {}),
       });
+      logChatDiagnostic("Chat OpenAI response received", {
+        requestId,
+        round: round + 2,
+        outputTypes: response.output.map((item) => item.type),
+        functionNames: response.output
+          .filter((item) => item.type === "function_call")
+          .map((item) => item.name),
+      });
     }
 
+    logChatDiagnostic("Chat request completed", {
+      requestId,
+      toolCallsRun,
+      sourceCount: sources.length,
+      answerLength: response.output_text.length,
+    });
     return NextResponse.json({ content: response.output_text, sources });
   } catch (error) {
-    console.error("Chat request failed:", error instanceof Error ? error.name : "unknown error");
+    const diagnostic = error && typeof error === "object"
+      ? error as { name?: unknown; code?: unknown; status?: unknown }
+      : {};
+    logChatDiagnostic("Chat request failed", {
+      requestId,
+      stage,
+      errorName: typeof diagnostic.name === "string" ? diagnostic.name : "unknown",
+      errorCode: typeof diagnostic.code === "string" ? diagnostic.code : undefined,
+      statusCode: typeof diagnostic.status === "number" ? diagnostic.status : undefined,
+    }, "error");
     return NextResponse.json({ error: "AIへの問い合わせに失敗しました" }, { status: 500 });
   }
 }
