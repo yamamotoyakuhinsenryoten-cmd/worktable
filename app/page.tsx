@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { parseChatSources, type ChatSource } from "@/lib/chat-sources";
+import { CATEGORIES, type CategoryId } from "@/lib/categories";
 
 type Message = {
   id: number;
@@ -17,6 +18,12 @@ type Session = {
   slug: string;
   logGenerated: boolean;
   messages: Message[];
+};
+
+type CategoryResult = {
+  sessionId: number;
+  categoryIds: CategoryId[];
+  status: "classified" | "unclassified" | "invalid_output" | "error";
 };
 
 function createTitle() {
@@ -40,6 +47,7 @@ function moveSessionToFront(sessions: Session[], sessionId: number) {
 export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [categoryResult, setCategoryResult] = useState<CategoryResult | null>(null);
   const [input, setInput] = useState("");
   const [editingTitleSessionId, setEditingTitleSessionId] = useState<
     number | null
@@ -344,6 +352,7 @@ export default function Home() {
     if (!content || isAskingAI || isSending) return;
 
     setIsAskingAI(true);
+    setCategoryResult(null);
     let messageSessionId: number | null = null;
 
     try {
@@ -415,6 +424,15 @@ export default function Home() {
         throw new Error(data.error ?? "AIへの問い合わせに失敗しました");
       }
 
+      const categoryIds = Array.isArray(data.categoryIds)
+        ? data.categoryIds.filter((id: unknown): id is CategoryId =>
+          typeof id === "string" && CATEGORIES.some((category) => category.id === id))
+        : [];
+      const status = ["classified", "unclassified", "invalid_output", "error"].includes(data.categoryClassification)
+        ? data.categoryClassification as CategoryResult["status"]
+        : categoryIds.length > 0 ? "classified" : "unclassified";
+      setCategoryResult({ sessionId, categoryIds, status });
+
       // AIの返答をDBに保存
       const assistantResponse = await fetch("/api/messages", {
         method: "POST",
@@ -460,6 +478,7 @@ export default function Home() {
       pendingScrollRef.current = "assistant";
     } catch (error) {
       console.error(error);
+      setCategoryResult(null);
 
       const errorMessage: Message = {
         id: Date.now(),
@@ -791,6 +810,21 @@ export default function Home() {
                 {" "}
                 {activeSession?.title ?? "作業"}{" "}
               </h2>{" "}
+              {categoryResult?.sessionId === activeSessionId && (
+                <span
+                  aria-live="polite"
+                  className="shrink-0 rounded-full bg-zinc-100 px-2 py-1 text-xs text-zinc-600"
+                >
+                  話題: {categoryResult.status === "error" || categoryResult.status === "invalid_output"
+                    ? "判定エラー"
+                    : categoryResult.categoryIds.length > 0
+                    ? categoryResult.categoryIds
+                      .map((id) => CATEGORIES.find(({ id: categoryId }) => categoryId === id)?.displayName)
+                      .filter((name) => typeof name === "string")
+                      .join("、") || "未判定"
+                    : "未判定"}
+                </span>
+              )}{" "}
               {/* 話す／書く：タイトルの右側 */}{" "}
               <div className="flex shrink-0 rounded-lg bg-zinc-100 p-1">
                 {" "}
