@@ -81,7 +81,7 @@ async function postMessage(
   return { response, payload };
 }
 
-async function callMcpTool(name: string, args: Record<string, unknown>): Promise<McpToolResult> {
+async function callMcpTool(name: string, args: Record<string, unknown>, includeRepository = true): Promise<McpToolResult> {
   const init = await postMessage({
     jsonrpc: "2.0",
     id: 1,
@@ -106,11 +106,9 @@ async function callMcpTool(name: string, args: Record<string, unknown>): Promise
     method: "tools/call",
     params: {
       name,
-      arguments: {
-        owner: REPOSITORY_OWNER,
-        repo: REPOSITORY_NAME,
-        ...args,
-      },
+      arguments: includeRepository
+        ? { owner: REPOSITORY_OWNER, repo: REPOSITORY_NAME, ...args }
+        : args,
     },
   }, sessionId);
 
@@ -170,7 +168,7 @@ export async function searchWorktableCode(query: unknown): Promise<string> {
   const result = await callMcpTool("search_code", {
     query: `${safeQuery} repo:${REPOSITORY_OWNER}/${REPOSITORY_NAME}`,
     perPage: 5,
-  });
+  }, false);
   return stringifyToolResult(result);
 }
 
