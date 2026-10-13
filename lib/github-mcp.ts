@@ -138,6 +138,7 @@ function validatePath(path: unknown): string {
   }
   const normalized = path.trim();
   if (
+    !normalized ||
     normalized.startsWith("/") ||
     normalized.includes("\\") ||
     normalized.split("/").some((part) => part === ".." || part === ".") ||
