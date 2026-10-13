@@ -2,8 +2,13 @@ import { createHash } from "node:crypto";
 
 const MCP_ENDPOINT = "https://api.githubcopilot.com/mcp/readonly";
 const MCP_PROTOCOL_VERSION = "2025-03-26";
-const REPOSITORY_OWNER = "yamamotoyakuhinsenryoten-cmd";
-const REPOSITORY_NAME = "worktable";
+const REPOSITORY_ALLOWLIST = {
+  worktable: { owner: "yamamotoyakuhinsenryoten-cmd", repo: "worktable" },
+  "mountain-book-dyeshop": { owner: "yamamotoyakuhinsenryoten-cmd", repo: "mountain-book-dyeshop" },
+} as const;
+export type GitHubRepositoryKey = keyof typeof REPOSITORY_ALLOWLIST;
+export const GITHUB_REPOSITORY_KEYS = Object.keys(REPOSITORY_ALLOWLIST) as GitHubRepositoryKey[];
+const DEFAULT_REPOSITORY: GitHubRepositoryKey = "worktable";
 const MAX_MCP_TEXT_LENGTH = 20_000;
 const MAX_FULL_FILE_CHARACTERS = 12_000;
 const MAX_FILE_RANGE_LINES = 120;
@@ -184,7 +189,22 @@ async function postMessage(
   return { response, payload, responseBodyBytes: Buffer.byteLength(body, "utf8"), responseBodyLines: countLines(body) };
 }
 
-async function callMcpTool(name: string, args: Record<string, unknown>, includeRepository = true): Promise<McpToolCall> {
+function resolveRepository(value: unknown = DEFAULT_REPOSITORY): (typeof REPOSITORY_ALLOWLIST)[GitHubRepositoryKey] {
+  if (typeof value !== "string" || !Object.hasOwn(REPOSITORY_ALLOWLIST, value)) {
+    throw new GitHubMcpError(
+      "The requested GitHub repository is not allowed.",
+      "GITHUB_MCP_REPOSITORY_NOT_ALLOWED",
+      undefined,
+      undefined,
+      "repository_not_allowlisted",
+      "input_validation",
+    );
+  }
+  return REPOSITORY_ALLOWLIST[value as GitHubRepositoryKey];
+}
+
+async function callMcpTool(name: string, args: Record<string, unknown>, repositoryKey: unknown = DEFAULT_REPOSITORY, includeRepository = true): Promise<McpToolCall> {
+  const repository = resolveRepository(repositoryKey);
   const init = await postMessage({
     jsonrpc: "2.0",
     id: 1,
@@ -228,7 +248,7 @@ async function callMcpTool(name: string, args: Record<string, unknown>, includeR
     params: {
       name,
       arguments: includeRepository
-        ? { ...args, owner: REPOSITORY_OWNER, repo: REPOSITORY_NAME }
+        ? { ...args, owner: repository.owner, repo: repository.repo }
         : args,
     },
   }, sessionId);
@@ -406,10 +426,11 @@ function validateLineRange(startLine: unknown, endLine: unknown): { startLine?: 
   return { startLine: startLine as number, endLine: endLine as number };
 }
 
-export async function readWorktableFile(path: unknown, startLine?: unknown, endLine?: unknown): Promise<string> {
+export async function readWorktableFile(path: unknown, startLine?: unknown, endLine?: unknown, repositoryKey: unknown = DEFAULT_REPOSITORY): Promise<string> {
   const safePath = validatePath(path);
   const range = validateLineRange(startLine, endLine);
-  const call = await callMcpTool("get_file_contents", { path: safePath });
+  const repository = resolveRepository(repositoryKey);
+  const call = await callMcpTool("get_file_contents", { path: safePath }, repositoryKey);
   const content = stringifyToolResult(call.result, true, Number.POSITIVE_INFINITY);
   const lines = splitLines(content);
   const fileCharacters = content.length;
@@ -426,6 +447,7 @@ export async function readWorktableFile(path: unknown, startLine?: unknown, endL
     shaVerified: expectedBlobSha !== null,
     shaMatches: expectedBlobSha === null ? undefined : shaMatches,
     truncated: false,
+    repository: repository.repo,
   });
   if (!shaMatches) {
     throw new GitHubMcpError(
@@ -527,7 +549,7 @@ export async function readWorktableFile(path: unknown, startLine?: unknown, endL
   return result;
 }
 
-export async function searchWorktableCode(query: unknown): Promise<string> {
+export async function searchWorktableCode(query: unknown, repositoryKey: unknown = DEFAULT_REPOSITORY): Promise<string> {
   if (typeof query !== "string" || !query.trim() || query.length > 200) {
     throw new Error("Invalid code search query");
   }
@@ -538,18 +560,19 @@ export async function searchWorktableCode(query: unknown): Promise<string> {
     .replace(/\buser\s*:\s*[^\s]+/giu, " ")
     .trim();
   if (!safeQuery) throw new Error("Invalid code search query");
+  const repository = resolveRepository(repositoryKey);
   const result = await callMcpTool("search_code", {
-    query: `${safeQuery} repo:${REPOSITORY_OWNER}/${REPOSITORY_NAME}`,
+    query: `${safeQuery} repo:${repository.owner}/${repository.repo}`,
     perPage: 5,
-  }, false);
+  }, repositoryKey, false);
   return stringifyToolResult(result.result);
 }
 
-export async function getWorktableRecentCommits(limit: unknown): Promise<string> {
+export async function getWorktableRecentCommits(limit: unknown, repositoryKey: unknown = DEFAULT_REPOSITORY): Promise<string> {
   if (limit !== undefined && (!Number.isInteger(limit) || (limit as number) < 1)) {
     throw new Error("Invalid commit limit");
   }
   const perPage = Math.min((limit as number | undefined) ?? 5, 10);
-  const result = await callMcpTool("list_commits", { perPage });
+  const result = await callMcpTool("list_commits", { perPage }, repositoryKey);
   return stringifyToolResult(result.result);
 }
