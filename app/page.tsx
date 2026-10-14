@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { parseChatSources, type ChatSource } from "@/lib/chat-sources";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { CATEGORY_FIELDS, LOG_CATEGORIES, emptyLogDraft, type LogDraft, type LogType, type RelatedItem } from "@/lib/log-schema";
 
 type Message = {
   id: number;
@@ -44,6 +45,33 @@ function moveSessionToFront(sessions: Session[], sessionId: number) {
   return [sessions[index], ...sessions.slice(0, index), ...sessions.slice(index + 1)];
 }
 
+function groupDetails<T extends { group: string }>(fields: T[]) {
+  return fields.reduce<Record<string, T[]>>((groups, field) => {
+    (groups[field.group] ??= []).push(field);
+    return groups;
+  }, {});
+}
+
+function ArrayEditor({ title, items, onChange }: { title: string; items: string[]; onChange: (items: string[]) => void }) {
+  return <fieldset className="mt-5"><legend className="mb-2 font-semibold">{title}</legend><div className="space-y-2">{items.map((item, index) => <div key={index} className="flex items-start gap-2"><textarea value={item} onChange={event => { const next = [...items]; next[index] = event.target.value; onChange(next); }} className="min-h-12 flex-1 rounded-lg border border-zinc-300 p-2 text-sm" /><button type="button" aria-label={`${title} ${index + 1}を削除`} onClick={() => onChange(items.filter((_, i) => i !== index))} className="rounded-lg border px-3 py-2 text-sm">削除</button></div>)}</div><button type="button" onClick={() => onChange([...items, ""])} className="mt-2 rounded-lg border border-zinc-300 px-3 py-2 text-sm">項目を追加</button></fieldset>;
+}
+
+function RelatedEditor({ items, onChange }: { items: RelatedItem[]; onChange: (items: RelatedItem[]) => void }) {
+  const update = (index: number, key: "title" | "url" | "slug" | "id", value: string) => {
+    onChange(items.map((item, itemIndex) => itemIndex === index ? { ...item, [key]: value } as RelatedItem : item));
+  };
+  const changeKind = (index: number, kind: RelatedItem["kind"]) => {
+    const title = items[index]?.title ?? "";
+    const replacement: RelatedItem = kind === "external"
+      ? { kind, title, url: "" }
+      : kind === "log"
+        ? { kind, title, slug: "" }
+        : { kind, title, id: "" };
+    onChange(items.map((item, itemIndex) => itemIndex === index ? replacement : item));
+  };
+  return <fieldset className="mt-5"><legend className="mb-2 font-semibold">関連ログ・参考リンク</legend><div className="space-y-4">{items.map((item, index) => <div key={index} className="rounded-xl border border-zinc-200 p-3"><div className="mb-3 flex items-center justify-between gap-3"><label className="flex-1 text-sm">種類<select value={item.kind} onChange={event => changeKind(index, event.target.value as RelatedItem["kind"])} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2"><option value="external">参考リンク</option><option value="log">関連ログ</option><option value="backlog">Backlog</option></select></label><button type="button" aria-label={`関連項目 ${index + 1}を削除`} onClick={() => onChange(items.filter((_, itemIndex) => itemIndex !== index))} className="mt-5 rounded-lg border px-3 py-2 text-sm">削除</button></div><label className="block text-sm">タイトル<input value={item.title} onChange={event => update(index, "title", event.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>{item.kind === "external" && <label className="mt-3 block text-sm">URL<input type="url" value={item.url} onChange={event => update(index, "url", event.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>}{item.kind === "log" && <label className="mt-3 block text-sm">slug<input value={item.slug} onChange={event => update(index, "slug", event.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>}{item.kind === "backlog" && <label className="mt-3 block text-sm">ID<input value={item.id} onChange={event => update(index, "id", event.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>}</div>)}</div><button type="button" onClick={() => onChange([...items, { kind: "external", title: "", url: "" }])} className="mt-3 rounded-lg border border-zinc-300 px-3 py-2 text-sm">関連項目を追加</button></fieldset>;
+}
+
 export default function Home() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
@@ -56,11 +84,12 @@ export default function Home() {
   const [isAskingAI, setIsAskingAI] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingLog, setIsGeneratingLog] = useState(false);
-  const [generatedLog, setGeneratedLog] = useState("");
+  const [logDraft, setLogDraft] = useState<LogDraft | null>(null);
   const [isRegisteringLog, setIsRegisteringLog] = useState(false);
   const [registrationMessage, setRegistrationMessage] = useState("");
   const [isAddingMedia, setIsAddingMedia] = useState(false);
   const [mediaMessage, setMediaMessage] = useState("");
+  const [mediaTarget, setMediaTarget] = useState<{ slug: string; logType: LogType } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [contextMenuSessionId, setContextMenuSessionId] = useState<
     number | null
@@ -508,7 +537,8 @@ export default function Home() {
     if (!activeSession || isGeneratingLog) return;
 
     setIsGeneratingLog(true);
-    setGeneratedLog("");
+    setLogDraft(null);
+    setRegistrationMessage("");
 
     try {
       // まずログを生成
@@ -530,8 +560,7 @@ export default function Home() {
         throw new Error(data.error ?? "ログの生成に失敗しました");
       }
 
-      // ログ生成成功
-      setGeneratedLog(data.content);
+      if (!data.draft || typeof data.draft !== "object") throw new Error("AIの応答にログデータがありません");
 
       // Sessionの最新状態をDBに保存
       const updateResponse = await fetch(`/api/sessions/${activeSession.id}`, {
@@ -564,12 +593,11 @@ export default function Home() {
             : session,
         ),
       );
+      setLogDraft(data.draft as LogDraft);
     } catch (error) {
       console.error(error);
 
-      setGeneratedLog(
-        error instanceof Error ? error.message : "ログの生成に失敗しました",
-      );
+      setRegistrationMessage(error instanceof Error ? error.message : "ログの生成に失敗しました");
     } finally {
       setIsGeneratingLog(false);
     }
@@ -577,31 +605,40 @@ export default function Home() {
 
   // ログをサイトに登録
   const handleRegisterLog = async () => {
-    if (!activeSession || !generatedLog) return;
+    if (!logDraft || isRegisteringLog) return;
 
     setIsRegisteringLog(true);
     setRegistrationMessage("");
 
     try {
-      const response = await fetch("/api/register-log", {
+      const register = (overwrite: boolean) => fetch("/api/register-log", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          content: generatedLog,
-          logType: activeSession.logType,
-          slug: activeSession.slug,
+          draft: logDraft,
+          overwrite,
         }),
       });
 
-      const data = await response.json();
+      let response = await register(false);
+      let data = await response.json();
+      if (response.status === 409 && data.conflict && window.confirm(`${logDraft.slug}.ts はすでに存在します。上書きしますか？`)) {
+        response = await register(true);
+        data = await response.json();
+      } else if (response.status === 409 && data.conflict) {
+        setRegistrationMessage("登録をキャンセルしました。");
+        return;
+      }
 
       if (!response.ok) {
         throw new Error(data.error ?? "サイトへの登録に失敗しました");
       }
 
       setRegistrationMessage(`✓ サイトに登録しました：${data.file}`);
+      setMediaTarget({ slug: logDraft.slug, logType: logDraft.type });
+      setLogDraft(null);
     } catch (error) {
       setRegistrationMessage(
         error instanceof Error ? error.message : "サイトへの登録に失敗しました",
@@ -613,7 +650,8 @@ export default function Home() {
 
   // メディアを追加
   const handleAddMedia = async () => {
-    if (!activeSession) return;
+    const target = mediaTarget ?? (activeSession ? { slug: activeSession.slug, logType: activeSession.logType } : null);
+    if (!target) return;
 
     setIsAddingMedia(true);
     setMediaMessage("");
@@ -625,8 +663,8 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          slug: activeSession.slug,
-          logType: activeSession.logType,
+          slug: target.slug,
+          logType: target.logType,
         }),
       });
 
@@ -644,6 +682,18 @@ export default function Home() {
     } finally {
       setIsAddingMedia(false);
     }
+  };
+
+  const updateDraft = (key: string, value: unknown) => setLogDraft(current => current ? { ...current, [key]: value } : current);
+  const changeDraftType = (type: LogType) => {
+    if (!logDraft || type === logDraft.type) return;
+    const next = emptyLogDraft(type, LOG_CATEGORIES[type][0], logDraft.slug);
+    setLogDraft({ ...next, createdAt: logDraft.createdAt, title: logDraft.title, related: logDraft.related });
+  };
+  const changeDraftCategory = (category: string) => {
+    if (!logDraft) return;
+    const next = emptyLogDraft(logDraft.type, category, logDraft.slug);
+    setLogDraft({ ...next, createdAt: logDraft.createdAt, title: logDraft.title, related: logDraft.related });
   };
 
   // タイトル編集開始
@@ -902,6 +952,8 @@ export default function Home() {
               {isGeneratingLog ? "生成中…" : "ログを生成"}{" "}
             </button>{" "}
           </div>{" "}
+          {registrationMessage && !logDraft && <p role="alert" className="mx-auto mt-2 max-w-3xl text-sm text-red-700">{registrationMessage}</p>}
+          {mediaTarget && !logDraft && <div className="mx-auto mt-2 flex max-w-3xl items-center gap-3 text-sm"><button type="button" onClick={handleAddMedia} disabled={isAddingMedia} className="rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50">{isAddingMedia ? "追加中…" : "メディアを追加"}</button>{mediaMessage && <span>{mediaMessage}</span>}</div>}
         </header>
         {/* メッセージ */}
         <div
@@ -958,47 +1010,35 @@ export default function Home() {
                 );
               })
             )}
-            {generatedLog && (
-              <div className="mx-auto mt-8 max-w-3xl rounded-xl border border-zinc-200 bg-white p-6 shadow-sm">
-                <div className="mb-4 text-sm font-medium text-zinc-500">
-                  生成されたログ
-                </div>
-
-                <pre className="whitespace-pre-wrap text-sm leading-7">
-                  {generatedLog}
-                </pre>
-                <div className="mt-6 flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={handleRegisterLog}
-                    disabled={isRegisteringLog}
-                    className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
-                  >
-                    {isRegisteringLog ? "登録中..." : "サイトに登録"}
-                  </button>
-
-                  {registrationMessage && (
-                    <p className="text-sm text-zinc-600">
-                      {registrationMessage}
-                    </p>
-                  )}
-                </div>
-                <div className="mt-4 flex items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={handleAddMedia}
-                    disabled={isAddingMedia}
-                    className="rounded-lg border border-zinc-300 px-4 py-2 text-sm font-medium disabled:opacity-50"
-                  >
-                    {isAddingMedia ? "追加中..." : "メディアを追加"}
-                  </button>
-
-                  {mediaMessage && (
-                    <p className="text-sm text-zinc-600">{mediaMessage}</p>
-                  )}
-                </div>
+      {logDraft && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-3 md:p-6" role="presentation">
+          <section role="dialog" aria-modal="true" aria-labelledby="log-editor-title" className="flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <header className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+              <div><h2 id="log-editor-title" className="text-lg font-semibold">ログ内容の確認・編集</h2><p className="text-sm text-zinc-500">内容を確認してからサイトに登録できます。</p></div>
+              <button type="button" onClick={() => { setLogDraft(null); setRegistrationMessage(""); }} className="rounded-lg px-3 py-2 text-sm hover:bg-zinc-100">閉じる</button>
+            </header>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-medium">ログ種別<select value={logDraft.type} onChange={e => changeDraftType(e.target.value as LogType)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2">{(["work", "experience", "development"] as const).map(type => <option key={type}>{type}</option>)}</select></label>
+                <label className="text-sm font-medium">カテゴリ<select value={logDraft.category} onChange={e => changeDraftCategory(e.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2">{LOG_CATEGORIES[logDraft.type].map(category => <option key={category}>{category}</option>)}</select></label>
+                <label className="text-sm font-medium">slug<input value={logDraft.slug} onChange={e => updateDraft("slug", e.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>
+                <label className="text-sm font-medium">作成日<input type="date" value={logDraft.createdAt} onChange={e => updateDraft("createdAt", e.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>
+                <label className="text-sm font-medium sm:col-span-2">タイトル<input value={logDraft.title} onChange={e => updateDraft("title", e.target.value)} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" /></label>
               </div>
-            )}
+              {logDraft.type !== "development" && <div className="mt-6 space-y-5">{Object.entries(groupDetails(CATEGORY_FIELDS[logDraft.type][logDraft.category] ?? [])).map(([group, fields]) => <fieldset key={group}><legend className="mb-2 font-semibold">{group}</legend><div className="grid gap-3 sm:grid-cols-2">{fields.map(field => { const index = (logDraft.details ?? []).findIndex(item => item.label === field.label); const value = index >= 0 ? logDraft.details![index].value : ""; return <label key={field.label} className="text-sm">{field.label}{field.options && field.options.length <= 5 ? <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">{["", ...field.options].map(option => <label key={option} className="inline-flex items-center gap-1"><input type="radio" name={`field-${field.label}`} checked={value === option} onChange={() => { const details = [...(logDraft.details ?? [])]; if (index >= 0) details[index] = { label: field.label, value: option }; else details.push({ label: field.label, value: option }); updateDraft("details", details); }} />{option || "未選択"}</label>)}</div> : field.options ? <select value={value} onChange={e => { const details = [...(logDraft.details ?? [])]; if (index >= 0) details[index] = { label: field.label, value: e.target.value }; else details.push({ label: field.label, value: e.target.value }); updateDraft("details", details); }} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2">{["", ...field.options].map(option => <option key={option}>{option}</option>)}</select> : <input value={value} onChange={e => { const details = [...(logDraft.details ?? [])]; if (index >= 0) details[index] = { label: field.label, value: e.target.value }; else details.push({ label: field.label, value: e.target.value }); updateDraft("details", details); }} className="mt-1 block w-full rounded-lg border border-zinc-300 p-2" />}</label>; })}</div></fieldset>)}</div>}
+              {logDraft.type === "work" && <><label className="mt-5 block text-sm">取り組み方<textarea value={logDraft.approach ?? ""} onChange={e => updateDraft("approach", e.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-zinc-300 p-2" /></label><label className="mt-4 block text-sm">結果<textarea value={logDraft.result ?? ""} onChange={e => updateDraft("result", e.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-zinc-300 p-2" /></label></>}
+              {logDraft.type === "development" && <>{(["purpose", "policy", "result"] as const).map(key => <label key={key} className="mt-4 block text-sm">{({ purpose: "目的", policy: "方針", result: "結果" })[key]}<textarea value={String(logDraft[key] ?? "")} onChange={e => updateDraft(key, e.target.value)} className="mt-1 min-h-24 w-full rounded-lg border border-zinc-300 p-2" /></label>)}</>}
+              {(logDraft.type === "work" || logDraft.type === "experience") && <ArrayEditor title="気づき・考察" items={(logDraft.insights as string[]) ?? []} onChange={items => updateDraft("insights", items)} />}
+              {(logDraft.type === "work" || logDraft.type === "development") && <ArrayEditor title="次にやること" items={(logDraft.next as string[]) ?? []} onChange={items => updateDraft("next", items)} />}
+              {logDraft.type === "development" && <ArrayEditor title="手順" items={(logDraft.steps as string[]) ?? []} onChange={items => updateDraft("steps", items)} />}
+              {logDraft.type === "development" && <ArrayEditor title="実行内容" items={(logDraft.execution as { title: string; body: string }[]).map(x => `${x.title}\n${x.body}`)} onChange={items => updateDraft("execution", items.map(item => { const [title = "", ...body] = item.split("\n"); return { title, body: body.join("\n") }; }))} />}
+              <RelatedEditor items={logDraft.related} onChange={items => updateDraft("related", items)} />
+              {registrationMessage && <p role="status" className="mt-4 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">{registrationMessage}</p>}
+            </div>
+            <footer className="flex justify-end gap-3 border-t border-zinc-200 px-5 py-4"><button type="button" onClick={() => { setLogDraft(null); setRegistrationMessage(""); }} disabled={isRegisteringLog} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm">破棄して閉じる</button><button type="button" onClick={handleRegisterLog} disabled={isRegisteringLog} className="rounded-lg bg-black px-4 py-2 text-sm font-medium text-white disabled:opacity-50">{isRegisteringLog ? "登録中…" : "サイトに登録"}</button></footer>
+          </section>
+        </div>
+      )}
             <div ref={messagesEndRef} />
           </div>
         </div>

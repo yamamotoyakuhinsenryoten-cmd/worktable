@@ -1,4 +1,5 @@
 type LogType = "work" | "experience" | "development";
+import { CATEGORY_FIELDS } from "@/lib/log-schema";
 
 type BuildLogPromptArgs = {
   logType: LogType;
@@ -643,15 +644,38 @@ export function buildLogPrompt({
     development: developmentPrompt,
   };
 
-  return prompts[logType]
+  const legacyGuidance = prompts[logType]
     .replaceAll("{{slug}}", slug)
     .replaceAll("{{logType}}", logType)
     .replace(
       "出力はコードブロック内のみにしてください。",
-      `入力されたチャット：
-
-${conversation}
-
-出力はコードブロック内のみにしてください。`,
+      "以下の最終JSON出力ルールを優先してください。",
     );
+  const fields = Object.entries(CATEGORY_FIELDS[logType])
+    .map(([category, definitions]) => `${category}: ${definitions.map(({ label }) => label).join("、")}`)
+    .join("\n");
+  const shape = logType === "work"
+    ? '{"slug":"string","type":"work","createdAt":"YYYY-MM-DD","title":"string","category":"定義済みカテゴリ","approach":"string","result":"string","details":[{"label":"string","value":"string"}],"insights":["string"],"next":["string"],"related":[]}'
+    : logType === "experience"
+      ? '{"slug":"string","type":"experience","createdAt":"YYYY-MM-DD","title":"string","category":"定義済みカテゴリ","details":[{"label":"string","value":"string"}],"insights":["string"],"related":[]}'
+      : '{"slug":"string","type":"development","createdAt":"YYYY-MM-DD","title":"string","category":"定義済みカテゴリ","purpose":"string","policy":"string","steps":["string"],"execution":[{"title":"string","body":"string"}],"result":"string","next":["string"],"related":[]}';
+
+  return `${legacyGuidance}
+
+## 最終出力ルール（上記のTypeScript・コードブロック指示やサンプルより優先）
+
+- 出力は有効なJSONオブジェクト1つだけ。TypeScript、コードフェンス、前後の説明は禁止。
+- 以下のキーをすべて含め、指定したJSON型にする。情報がない文字列は空文字、配列は空配列。
+- slugは「${slug}」、typeは「${logType}」、createdAtは今日の日付（YYYY-MM-DD）。
+- sourceとmediaはアプリ側で固定・別工程設定するので含めない。
+- categoryとdetailsは次の定義に従い、選択したカテゴリに属するdetailsを全件、定義順で出力する。不明なvalueは空文字。
+${fields}
+- relatedにはチャットに明示された関連ログやリンクだけを含め、捏造しない。要素は既存のRelated形式（external: kind/title/url、log: kind/title/slug、backlog: kind/title/id）。
+- 会話にない事実、日付、回数、結果を推測・補完しない。既存のタイトル形式、項目の分類、事実と感想の区分などの上記ガイドは維持する。
+
+JSONの形:
+${shape}
+
+チャット内容:
+${conversation}`;
 }

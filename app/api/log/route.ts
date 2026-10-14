@@ -1,12 +1,11 @@
 import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { buildLogPrompt } from "@/lib/log-prompts";
+import { CATEGORY_FIELDS, LOG_CATEGORIES, emptyLogDraft, validateLogDraft, type LogType } from "@/lib/log-schema";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
-
-type LogType = "work" | "experience" | "development";
 
 type Message = {
   role: "user" | "assistant";
@@ -63,9 +62,25 @@ export async function POST(request: Request) {
       input: prompt,
     });
 
-    return NextResponse.json({
-      content: response.output_text,
-    });
+    let draft: unknown;
+    try {
+      draft = JSON.parse(response.output_text);
+    } catch {
+      return NextResponse.json({ error: "AIの応答をログデータとして解析できませんでした。もう一度生成してください。" }, { status: 422 });
+    }
+    if (!validateLogDraft(draft) || draft.slug !== slug || draft.type !== logType) {
+      return NextResponse.json({ error: "AIの応答に必須項目の欠落または型・カテゴリの不正があります。もう一度生成してください。" }, { status: 422 });
+    }
+    if (logType !== "development") {
+      const requiredLabels = CATEGORY_FIELDS[logType][draft.category].map(({ label }) => label);
+      const labels = draft.details!.map(({ label }) => label);
+      if (labels.length !== requiredLabels.length || requiredLabels.some((label, index) => labels[index] !== label)) {
+        return NextResponse.json({ error: "AIの応答にカテゴリ別項目の欠落または順序の不正があります。もう一度生成してください。" }, { status: 422 });
+      }
+    }
+    if (!LOG_CATEGORIES[logType].includes(draft.category)) return NextResponse.json({ error: "AIの応答に不正なカテゴリがあります。" }, { status: 422 });
+    const normalized = emptyLogDraft(logType, draft.category, slug);
+    return NextResponse.json({ draft: { ...normalized, ...draft, source: { title: "生成元チャット", service: "Worktable", url: "" }, media: [] } });
   } catch (error) {
     console.error("Log generation error:", error);
 
