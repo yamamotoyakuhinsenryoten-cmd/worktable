@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import TodoCreateDialog from "@/app/todos/todo-create-dialog";
 import { parseChatSources, type ChatSource } from "@/lib/chat-sources";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { CATEGORY_FIELDS, LOG_CATEGORIES, emptyLogDraft, type LogDraft, type LogType, type RelatedItem } from "@/lib/log-schema";
@@ -83,6 +84,11 @@ export default function Home() {
   >(null);
   const [titleInput, setTitleInput] = useState("");
   const [isAskingAI, setIsAskingAI] = useState(false);
+  const [todoDraftingMessageId, setTodoDraftingMessageId] = useState<number | null>(null);
+  const [todoDraft, setTodoDraft] = useState<{ title: string; content: string } | null>(null);
+  const [todoDraftError, setTodoDraftError] = useState("");
+  const [todoCreateError, setTodoCreateError] = useState("");
+  const [isCreatingTodo, setIsCreatingTodo] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [isGeneratingLog, setIsGeneratingLog] = useState(false);
   const [logDraft, setLogDraft] = useState<LogDraft | null>(null);
@@ -102,6 +108,62 @@ export default function Home() {
   const latestAssistantRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<"bottom" | "assistant" | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCreateTodoFromMessage = async (message: Message, index: number) => {
+    if (!activeSession || todoDraftingMessageId !== null) return;
+    setTodoDraftingMessageId(message.id);
+    const context = activeSession.messages.slice(Math.max(0, index - 3), Math.min(activeSession.messages.length, index + 4))
+      .map(({ role, content }) => ({ role, content }));
+    let draft = { title: message.content.trim().split(/\r?\n/u)[0].slice(0, 300) || "チャットから作成したTODO", content: message.content };
+    let generationError = "";
+    try {
+      const response = await fetch("/api/todos/draft", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ selected: { role: message.role, content: message.content }, context }),
+      });
+      const data = await response.json();
+      if (!response.ok || typeof data.draft?.title !== "string" || typeof data.draft?.content !== "string") {
+        throw new Error(data.error ?? "TODO案の生成に失敗しました");
+      }
+      draft = data.draft;
+    } catch (error) {
+      generationError = error instanceof Error ? error.message : "TODO案の生成に失敗しました";
+    } finally {
+      setTodoDraftingMessageId(null);
+    }
+    setTodoDraft(draft);
+    setTodoDraftError(generationError);
+    setTodoCreateError("");
+  };
+
+  const handleRegisterTodo = async () => {
+    if (!todoDraft || isCreatingTodo) return;
+    setIsCreatingTodo(true);
+    setTodoCreateError("");
+    try {
+      const response = await fetch("/api/todos", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(todoDraft),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "チケットの作成に失敗しました");
+      setTodoDraft(null);
+      setTodoDraftError("");
+      setTodoCreateError("");
+    } catch (error) {
+      setTodoCreateError(error instanceof Error ? error.message : "チケットの作成に失敗しました");
+    } finally {
+      setIsCreatingTodo(false);
+    }
+  };
+
+  const handleCloseTodoDialog = () => {
+    if (isCreatingTodo) return;
+    setTodoDraft(null);
+    setTodoDraftError("");
+    setTodoCreateError("");
+  };
 
   // 保存済みデータを読み込む
   // 保存済みセッションを読み込む
@@ -1010,6 +1072,13 @@ export default function Home() {
                         </ul>
                       </div>
                     )}
+                    <div className="mt-2 flex justify-end">
+                      <button type="button" title="TODOを作成" aria-label={todoDraftingMessageId === message.id ? "TODOを生成中" : `${message.role === "user" ? "ユーザー" : "AI"}メッセージからTODOを作成`}
+                        onClick={() => void handleCreateTodoFromMessage(message, index)}
+                        disabled={todoDraftingMessageId !== null}
+                        className="rounded-md p-1 text-zinc-500 hover:bg-zinc-300/60 hover:text-zinc-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-500 disabled:cursor-wait disabled:opacity-50"
+                      ><svg aria-hidden="true" viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M10 4v12M4 10h12" strokeLinecap="round" /></svg></button>
+                    </div>
                   </div>
                 );
               })
@@ -1242,6 +1311,7 @@ export default function Home() {
           </aside>
         </div>
       )}
+      {todoDraft && <TodoCreateDialog title={todoDraft.title} content={todoDraft.content} saving={isCreatingTodo} errorMessage={todoCreateError} noticeMessage={todoDraftError ? `AI生成に失敗しました。元メッセージを入力しています。${todoDraftError}` : ""} onTitleChange={title => setTodoDraft(current => current ? { ...current, title } : current)} onContentChange={content => setTodoDraft(current => current ? { ...current, content } : current)} onSubmit={handleRegisterTodo} onClose={handleCloseTodoDialog} />}
     </main>
   );
 }

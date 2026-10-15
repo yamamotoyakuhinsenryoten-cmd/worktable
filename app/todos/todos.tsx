@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { todoDraftGenerationError } from "@/lib/todo-draft";
+import TodoCreateDialog from "./todo-create-dialog";
 
 type Status = "not_started" | "in_progress" | "completed";
 type Ticket = { id: number; title: string; content: string; status: Status; created_at: string; updated_at: string };
@@ -17,6 +19,7 @@ export default function Todos() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [draftError, setDraftError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -35,16 +38,40 @@ export default function Todos() {
       .finally(() => setLoading(false));
   }, []);
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("create") !== "1") return;
+    const timer = window.setTimeout(() => {
+      try {
+        setDraftError("");
+        const raw = sessionStorage.getItem("worktable-todo-draft");
+        if (raw) {
+          const draft = JSON.parse(raw) as { title?: unknown; content?: unknown; generationError?: unknown };
+          setTitle(typeof draft.title === "string" ? draft.title : "");
+          setContent(typeof draft.content === "string" ? draft.content : "");
+          const generationError = todoDraftGenerationError(draft.generationError);
+          setDraftError(generationError ? `AI生成に失敗しました。元メッセージを入力しています。${generationError}` : "");
+          sessionStorage.removeItem("worktable-todo-draft");
+        }
+        setModalOpen(true);
+        window.history.replaceState(window.history.state, "", "/todos");
+      } catch {
+        setDraftError("AI生成案の読み込みに失敗しました。タイトルと内容を入力してください。");
+        setModalOpen(true);
+      }
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
   const selected = tickets.find(ticket => ticket.id === selectedId) ?? null;
-  const createTicket = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const createTicket = async () => {
     setSaving(true); setError("");
     try {
       const response = await fetch("/api/todos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title, content }) });
       if (!response.ok) throw new Error(await responseError(response));
       const { ticket } = await response.json() as { ticket: Ticket };
       setTickets(current => [ticket, ...current]); setSelectedId(ticket.id); setEditing(false);
-      setTitle(""); setContent(""); setModalOpen(false);
+      setTitle(""); setContent(""); setDraftError(""); setModalOpen(false);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "チケットの作成に失敗しました"); }
     finally { setSaving(false); }
   };
@@ -85,11 +112,11 @@ export default function Todos() {
     <header className="flex h-14 shrink-0 items-center border-b border-zinc-200 bg-white px-4">
       <Link href="/" className="text-sm text-zinc-600 hover:text-zinc-950">← チャット</Link>
     </header>
-    {error && <p role="alert" className="mx-4 mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {error && !modalOpen && <p role="alert" className="mx-4 mt-3 rounded-lg bg-red-50 p-3 text-sm text-red-800">{error}</p>}
     <div className="relative flex min-h-0 flex-1">
       <aside className="hidden w-80 shrink-0 flex-col border-r border-zinc-200 bg-white md:flex">
         <div className="flex justify-end p-3">
-          <button onClick={() => { setError(""); setModalOpen(true); }} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">＋ 追加</button>
+          <button onClick={() => { setError(""); setDraftError(""); setTitle(""); setContent(""); setModalOpen(true); }} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">＋ 追加</button>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{ticketItems()}</div>
       </aside>
@@ -115,11 +142,11 @@ export default function Todos() {
             <span className="text-sm font-medium">チケット一覧</span>
             <button onClick={() => setDrawerOpen(false)} aria-label="一覧を閉じる" className="rounded-lg px-3 py-2 text-zinc-600 hover:bg-zinc-100">×</button>
           </div>
-          <div className="flex shrink-0 justify-end p-3"><button onClick={() => { setError(""); setModalOpen(true); setDrawerOpen(false); }} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">＋ 追加</button></div>
+          <div className="flex shrink-0 justify-end p-3"><button onClick={() => { setError(""); setDraftError(""); setTitle(""); setContent(""); setModalOpen(true); setDrawerOpen(false); }} className="rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-medium text-white hover:bg-zinc-700">＋ 追加</button></div>
           <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-2">{ticketItems()}</div>
         </aside>
       </div>}
     </div>
-    {modalOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"><form onSubmit={createTicket} role="dialog" aria-modal="true" aria-labelledby="new-ticket-title" className="w-full max-w-lg rounded-2xl bg-white shadow-xl"><div className="border-b border-zinc-200 px-5 py-4"><h2 id="new-ticket-title" className="font-semibold">チケットを追加</h2></div><div className="space-y-4 p-5"><label className="block text-sm font-medium">タイトル（必須）<input autoFocus required maxLength={300} value={title} onChange={e => setTitle(e.target.value)} className="mt-2 w-full rounded-lg border border-zinc-300 p-3" /></label><label className="block text-sm font-medium">内容<textarea value={content} onChange={e => setContent(e.target.value)} className="mt-2 min-h-32 w-full rounded-lg border border-zinc-300 p-3" /></label></div><div className="flex justify-end gap-2 border-t border-zinc-200 px-5 py-4"><button type="button" onClick={() => setModalOpen(false)} disabled={saving} className="rounded-lg border border-zinc-300 px-4 py-2 text-sm">キャンセル</button><button type="submit" disabled={saving || !title.trim()} className="rounded-lg bg-zinc-900 px-4 py-2 text-sm text-white disabled:opacity-50">{saving ? "保存中…" : "保存"}</button></div></form></div>}
+    {modalOpen && <TodoCreateDialog title={title} content={content} saving={saving} errorMessage={error} noticeMessage={draftError} onTitleChange={setTitle} onContentChange={setContent} onSubmit={createTicket} onClose={() => setModalOpen(false)} />}
   </main>;
 }
