@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { parseChatSources, type ChatSource } from "@/lib/chat-sources";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
@@ -755,6 +756,9 @@ export default function Home() {
       <aside className="hidden w-64 flex-col border-r border-zinc-200 bg-white md:flex">
         <div className="border-b border-zinc-200 p-4">
           <h1 className="text-lg font-semibold">Worktable</h1>
+          <Link href="/todos" className="mt-2 block rounded-lg px-2 py-2 text-sm text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900">
+            TODO一覧
+          </Link>
         </div>
 
         <div className="p-3">
@@ -1093,7 +1097,12 @@ export default function Home() {
           {/* サイドバー */}
           <aside className="relative z-10 flex h-full w-72 flex-col bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-zinc-200 p-4">
-              <h1 className="text-lg font-semibold">Worktable</h1>
+              <div>
+                <h1 className="text-lg font-semibold">Worktable</h1>
+                <Link href="/todos" onClick={() => setIsSidebarOpen(false)} className="mt-2 inline-block rounded-lg px-2 py-2 text-sm text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900">
+                  TODO一覧
+                </Link>
+              </div>
 
               <button
                 type="button"
