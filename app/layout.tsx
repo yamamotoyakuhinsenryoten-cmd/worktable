@@ -17,8 +17,8 @@ export const metadata: Metadata = {
   description: "作業したり、考えたり、雑に書いたりする場所",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/icon-512.png",
-    apple: "/icon-512.png",
+    icon: "/icon.svg",
+    apple: "/icon.svg",
   },
 };
 

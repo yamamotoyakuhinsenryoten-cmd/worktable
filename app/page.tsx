@@ -79,6 +79,8 @@ export default function Home() {
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [categoryResult, setCategoryResult] = useState<CategoryResult | null>(null);
   const [input, setInput] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const inputBaseHeightRef = useRef<number | null>(null);
   const [editingTitleSessionId, setEditingTitleSessionId] = useState<
     number | null
   >(null);
@@ -105,6 +107,19 @@ export default function Home() {
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const titleLongPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    if (inputBaseHeightRef.current === null) {
+      inputBaseHeightRef.current = textarea.getBoundingClientRect().height;
+    }
+    textarea.style.height = "auto";
+    const maxHeight = Number.parseFloat(window.getComputedStyle(textarea).maxHeight);
+    textarea.style.height = `${Math.max(inputBaseHeightRef.current, Math.min(textarea.scrollHeight, maxHeight))}px`;
+  }, [input]);
   const latestAssistantRef = useRef<HTMLDivElement>(null);
   const pendingScrollRef = useRef<"bottom" | "assistant" | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -812,6 +827,13 @@ export default function Home() {
     setEditingTitleSessionId(null);
   };
 
+  const clearTitleLongPress = () => {
+    if (titleLongPressTimerRef.current) {
+      clearTimeout(titleLongPressTimerRef.current);
+      titleLongPressTimerRef.current = null;
+    }
+  };
+
   return (
     <main className="flex h-dvh bg-zinc-100 text-zinc-900">
       {/* 左：セッション一覧 */}
@@ -922,10 +944,67 @@ export default function Home() {
                 {" "}
                 ☰{" "}
               </button>{" "}
-              <h2 className="min-w-0 truncate text-sm font-medium">
-                {" "}
-                {activeSession?.title ?? "作業"}{" "}
-              </h2>{" "}
+              {activeSession && editingTitleSessionId === activeSession.id ? (
+                <div className="flex min-w-0 flex-1 items-center gap-1">
+                  <input
+                    type="text"
+                    value={titleInput}
+                    onChange={(event) => setTitleInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") saveTitle();
+                      if (event.key === "Escape") cancelEditingTitle();
+                    }}
+                    autoFocus
+                    className="min-w-0 flex-1 rounded border border-zinc-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-zinc-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setTitleInput("")}
+                    aria-label="タイトル入力をクリア"
+                    title="入力をクリア"
+                    className="shrink-0 rounded px-1.5 py-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                  >
+                    ×
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveTitle}
+                    aria-label="タイトルを保存"
+                    title="保存"
+                    className="shrink-0 rounded px-1.5 py-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                  >
+                    ✓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={cancelEditingTitle}
+                    aria-label="タイトル編集をキャンセル"
+                    title="キャンセル"
+                    className="shrink-0 rounded px-1.5 py-1 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+                  >
+                    ↩
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onDoubleClick={() => activeSession && startEditingTitle(activeSession)}
+                  onTouchStart={() => {
+                    if (!activeSession) return;
+                    titleLongPressTimerRef.current = setTimeout(() => {
+                      startEditingTitle(activeSession);
+                      titleLongPressTimerRef.current = null;
+                    }, 500);
+                  }}
+                  onTouchEnd={clearTitleLongPress}
+                  onTouchMove={clearTitleLongPress}
+                  onTouchCancel={clearTitleLongPress}
+                  className="min-w-0 flex-1 truncate text-left text-sm font-medium"
+                  aria-label={`タイトル: ${activeSession?.title ?? "作業"}。編集するには長押しまたはダブルクリック`}
+                >
+                  {activeSession?.title ?? "作業"}
+                </button>
+              )}{" "}
               {categoryResult?.sessionId === activeSessionId && (
                 <span
                   aria-live="polite"
@@ -1119,6 +1198,7 @@ export default function Home() {
         <div className="shrink-0 border-t border-zinc-200 bg-white p-3 md:p-4">
           <div className="mx-auto flex max-w-3xl flex-col gap-2">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={(event) => setInput(event.target.value)}
               onKeyDown={(event) => {
@@ -1138,7 +1218,7 @@ export default function Home() {
               }}
               placeholder="ここに雑に書く……"
               disabled={isSending || isAskingAI}
-              className="min-h-12 w-full resize-none rounded-xl border border-zinc-300 px-4 py-3 text-base outline-none focus:border-zinc-500 disabled:bg-zinc-100 md:text-sm"
+              className="min-h-12 max-h-[10.5rem] w-full resize-none overflow-y-auto rounded-xl border border-zinc-300 px-4 py-3 text-base outline-none focus:border-zinc-500 disabled:bg-zinc-100 md:text-sm"
             />
 
             <div className="flex gap-2">
