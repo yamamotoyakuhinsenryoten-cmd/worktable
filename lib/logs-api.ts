@@ -1,3 +1,5 @@
+import { parseLogsApiBaseUrl } from "@/lib/logs-api-config";
+
 const MAX_SEARCH_RESULTS = 100;
 const MAX_DETAIL_CHARS = 12_000;
 const REQUEST_TIMEOUT_MS = 8_000;
@@ -57,13 +59,8 @@ function getConfig(): { baseUrl: URL; apiKey: string } {
     );
   }
 
-  let baseUrl: URL;
-  try {
-    baseUrl = new URL(baseUrlValue);
-  } catch {
-    throw new LogsApiError("ログ検索のサーバー設定が不正です", "configuration_invalid");
-  }
-  if (baseUrl.protocol !== "https:" || baseUrl.username || baseUrl.password) {
+  const baseUrl = parseLogsApiBaseUrl(baseUrlValue, process.env.NODE_ENV);
+  if (!baseUrl) {
     throw new LogsApiError("ログ検索のサーバー設定が不正です", "configuration_invalid");
   }
 

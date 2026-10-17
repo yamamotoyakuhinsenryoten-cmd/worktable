@@ -98,7 +98,9 @@ export default function Home() {
   const [registrationMessage, setRegistrationMessage] = useState("");
   const [isAddingMedia, setIsAddingMedia] = useState(false);
   const [mediaMessage, setMediaMessage] = useState("");
-  const [mediaTarget, setMediaTarget] = useState<{ slug: string; logType: LogType } | null>(null);
+  const [isPostingInstagram, setIsPostingInstagram] = useState(false);
+  const [instagramMessage, setInstagramMessage] = useState("");
+  const sessionActionRunningRef = useRef(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [contextMenuSessionId, setContextMenuSessionId] = useState<
     number | null
@@ -715,7 +717,6 @@ export default function Home() {
       }
 
       setRegistrationMessage(`✓ サイトに登録しました：${data.file}`);
-      setMediaTarget({ slug: logDraft.slug, logType: logDraft.type });
       setLogDraft(null);
     } catch (error) {
       setRegistrationMessage(
@@ -728,11 +729,12 @@ export default function Home() {
 
   // メディアを追加
   const handleAddMedia = async () => {
-    const target = mediaTarget ?? (activeSession ? { slug: activeSession.slug, logType: activeSession.logType } : null);
-    if (!target) return;
+    if (!activeSession || sessionActionRunningRef.current) return;
 
+    sessionActionRunningRef.current = true;
     setIsAddingMedia(true);
     setMediaMessage("");
+    setInstagramMessage("");
 
     try {
       const response = await fetch("/api/add-log-media", {
@@ -741,24 +743,55 @@ export default function Home() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          slug: target.slug,
-          logType: target.logType,
+          slug: activeSession.slug,
+          logType: activeSession.logType,
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        throw new Error(data.error ?? "メディアの追加に失敗しました");
+        throw new Error(data.error ?? "通信エラーが発生しました");
       }
 
       setMediaMessage(`✓ ${data.media.length}件のメディアを追加しました`);
     } catch (error) {
-      setMediaMessage(
-        error instanceof Error ? error.message : "メディアの追加に失敗しました",
-      );
+      const message = error instanceof Error ? error.message : "不明なエラー";
+      setMediaMessage(message === "ログが登録されていません" || message === "追加する画像がありません"
+        ? message
+        : `メディアの追加に失敗しました：${message}`);
     } finally {
       setIsAddingMedia(false);
+      sessionActionRunningRef.current = false;
+    }
+  };
+
+  const handlePostInstagram = async () => {
+    if (!activeSession || sessionActionRunningRef.current) return;
+
+    sessionActionRunningRef.current = true;
+    setIsPostingInstagram(true);
+    setInstagramMessage("");
+    setMediaMessage("");
+
+    try {
+      const response = await fetch("/api/post-instagram", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: activeSession.slug, logType: activeSession.logType }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "通信エラーが発生しました");
+
+      setInstagramMessage(`✓ ${data.imageCount}枚をInstagramへ投稿しました${data.truncated ? `。画像が${data.totalImageCount}枚あるため、先頭10枚を投稿しました` : ""}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "不明なエラー";
+      setInstagramMessage(message === "ログが登録されていません" || message === "追加する画像がありません"
+        ? message
+        : `Instagram投稿に失敗しました：${message}`);
+    } finally {
+      setIsPostingInstagram(false);
+      sessionActionRunningRef.current = false;
     }
   };
 
@@ -1084,21 +1117,24 @@ export default function Home() {
                 </div>
               )}{" "}
             </div>{" "}
-            <button
-              onClick={handleGenerateLog}
-              disabled={
-                isGeneratingLog ||
-                !activeSession ||
-                activeSession.messages.length === 0
-              }
-              className="hidden shrink-0 rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 md:block"
-            >
-              {" "}
-              {isGeneratingLog ? "生成中…" : "ログを生成"}{" "}
-            </button>{" "}
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <button
+                onClick={handleGenerateLog}
+                disabled={isGeneratingLog || !activeSession || activeSession.messages.length === 0}
+                className="hidden rounded-xl border border-zinc-300 px-4 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 md:block"
+              >
+                {isGeneratingLog ? "生成中…" : "ログを生成"}
+              </button>
+              <button type="button" onClick={handleAddMedia} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
+                {isAddingMedia ? "追加中…" : "メディアを追加"}
+              </button>
+              <button type="button" onClick={handlePostInstagram} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
+                {isPostingInstagram ? "Instagram投稿中…" : "Instagram投稿"}
+              </button>
+            </div>
           </div>{" "}
           {registrationMessage && !logDraft && <p role="alert" className="mx-auto mt-2 max-w-3xl text-sm text-red-700">{registrationMessage}</p>}
-          {mediaTarget && !logDraft && <div className="mx-auto mt-2 flex max-w-3xl items-center gap-3 text-sm"><button type="button" onClick={handleAddMedia} disabled={isAddingMedia} className="rounded-lg border border-zinc-300 px-3 py-2 disabled:opacity-50">{isAddingMedia ? "追加中…" : "メディアを追加"}</button>{mediaMessage && <span>{mediaMessage}</span>}</div>}
+          {(mediaMessage || instagramMessage) && <div role={mediaMessage.startsWith("✓") || instagramMessage.startsWith("✓") ? "status" : "alert"} className="mx-auto mt-2 max-w-3xl space-y-1 text-sm"><p>{mediaMessage}</p><p>{instagramMessage}</p></div>}
         </header>
         {/* メッセージ */}
         <div
