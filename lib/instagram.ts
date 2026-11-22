@@ -8,6 +8,14 @@ export type InstagramLog = {
   media: { type: string; src: string; caption?: string }[];
 };
 
+/**
+ * カテゴリごとに、投稿へ毎回付ける固定タグを定義します。
+ *
+ * 1. 入力されたカテゴリに対応するタグ一覧を参照します。
+ * 2. 一致する一覧を固定タグとして返します。
+ * 対応要件: R-03、R-04
+ * @example category="焙煎" // => ["#コーヒー焙煎", "#自家焙煎", "#手鍋焙煎", "#コーヒー好き"]
+ */
 const FIXED_TAGS: Record<string, string[]> = {
   焙煎: ["#コーヒー焙煎", "#自家焙煎", "#手鍋焙煎", "#コーヒー好き"],
   縫物: ["#手作り", "#ハンドメイド", "#手縫い", "#縫い物"],
@@ -16,14 +24,42 @@ const FIXED_TAGS: Record<string, string[]> = {
   コーヒー豆: ["#コーヒー豆", "#スペシャルティコーヒー", "#コーヒー好き"],
 };
 
+/**
+ * ログの詳細欄から、指定した名前の値を取り出します。
+ *
+ * 1. 詳細欄から名前が一致する最初の項目を探します。
+ * 2. 値を返し、該当項目がなければ空文字を返します。
+ * 対応要件: R-05
+ * @example detailValue({details:[{label:"産地",value:"ニカラグア"}]}, "産地") // => "ニカラグア"
+ */
 function detailValue(log: Pick<InstagramLog, "details">, label: string) {
+  // ?? は値がない場合だけ、代わりに空文字を使います。
   return log.details.find((detail) => detail.label === label)?.value ?? "";
 }
 
+/**
+ * 動的タグに使う値から、前後と中の空白や記号を取り除きます。
+ *
+ * 1. 前後の空白を取り除きます。
+ * 2. 句読点・記号・空白を取り除いた値を返します。
+ * 対応要件: R-06、R-08
+ * @example cleanTagValue(" ニカラグア・SHG ") // => "ニカラグアSHG"
+ */
 function cleanTagValue(value: string) {
+  // 正規表現は文字の種類をまとめて指定し、Unicodeの句読点・記号・空白を除きます。
   return value.trim().replace(/[\p{P}\p{S}\s]/gu, "");
 }
 
+/**
+ * カテゴリに応じて、動的タグの元になる値を集めます。
+ *
+ * 1. 焙煎: 産地・農園・グレード・焙煎度を選びます。
+ * 2. 縫物: 制作物・対象を選びます。染物: タイトルの「 #」より前と材質を選びます。
+ * 3. コーヒー店: 店名を＠や括弧で分け、店名とエリアを選びます。
+ * 4. コーヒー豆: 産地を「、」で分けて焙煎度を加えます。その他は空の一覧です。
+ * 対応要件: R-05、R-07、R-09
+ * @example dynamicTagValues({category:"コーヒー豆",details:[{label:"産地",value:"ブラジル、グアテマラ"},{label:"焙煎度",value:"中煎り"}]}) // => ["ブラジル", "グアテマラ", "中煎り"]
+ */
 function dynamicTagValues(log: Pick<InstagramLog, "category" | "title" | "details">) {
   switch (log.category) {
     case "焙煎":
@@ -31,10 +67,13 @@ function dynamicTagValues(log: Pick<InstagramLog, "category" | "title" | "detail
     case "縫物":
       return ["制作物", "対象"].map((label) => detailValue(log, label));
     case "染物":
+      // splitでタイトルを「 #」の位置で分け、先頭の方法名を取ります。
       return [log.title.split(" #", 1)[0], detailValue(log, "染めたものの材質")];
     case "コーヒー店": {
       const place = detailValue(log, "店名");
+      // 正規表現で、店名とエリアを分ける最初の記号を探します。
       const split = place.search(/[＠@(（]/);
+      // 三項演算子は、区切りがある場合とない場合で返す値を選びます。
       return split < 0 ? [place] : [place.slice(0, split), place.slice(split + 1)];
     }
     case "コーヒー豆":
@@ -44,10 +83,21 @@ function dynamicTagValues(log: Pick<InstagramLog, "category" | "title" | "detail
   }
 }
 
+/**
+ * ログの内容から、投稿に付けるタグ一覧を作ります。
+ *
+ * 1. developmentはタグなしにし、それ以外はカテゴリの固定タグから始めます。
+ * 2. 動的な値を整え、空欄と固定・動的間の重複を除いて追加します。
+ * 3. 固定タグを残し、現在の固定タグ数を前提に合計30個まで動的タグを加えます。
+ * Setは重複しない値を記録する仕組みで、大文字小文字をそろえて重複を見分けます。
+ * 対応要件: R-03、R-04、R-06、R-10、R-11
+ * @example buildTags({type:"work",category:"縫物",title:"記録",details:[{label:"制作物",value:"アロハシャツ"}]}) // => ["#手作り", "#ハンドメイド", "#手縫い", "#縫い物", "#アロハシャツ"]
+ */
 function buildTags(log: Pick<InstagramLog, "type" | "category" | "title" | "details">) {
   if (log.type === "development") return [];
   const fixed = FIXED_TAGS[log.category] ?? [];
   const tags = [...fixed];
+  // Setは同じ値を一度だけ記録し、タグの重複を判定します。
   const seen = new Set(fixed.map((tag) => tag.slice(1).toLocaleLowerCase()));
   for (const value of dynamicTagValues(log)) {
     const cleaned = cleanTagValue(value);
@@ -59,6 +109,14 @@ function buildTags(log: Pick<InstagramLog, "type" | "category" | "title" | "deta
   return [...fixed, ...tags.slice(fixed.length, 30)];
 }
 
+/**
+ * タイトル・詳細・考察を並べた本文を作り、タグがあれば末尾に追加します。
+ *
+ * 1. 詳細と考察を従来の形式で本文にまとめます。
+ * 2. タグを作り、ある場合は空行の後ろにスペース区切りで追加します。
+ * 対応要件: R-01、R-02、R-12、R-13
+ * @example buildInstagramCaption({type:"work",category:"焙煎",title:"記録",details:[{label:"産地",value:"ニカラグア"}],insights:[]}) // => "記録\n\n産地: ニカラグア\n\n#コーヒー焙煎 #自家焙煎 #手鍋焙煎 #コーヒー好き #ニカラグア"
+ */
 export function buildInstagramCaption(log: Pick<InstagramLog, "type" | "category" | "title" | "details" | "insights">) {
   const details = log.details
     .map((detail) => `${detail.label}: ${detail.value}`)
