@@ -123,7 +123,13 @@ export async function POST(request: Request) {
     const carousel = await requestInstagram(`/${userId}/media`, {
       media_type: "CAROUSEL",
       children: children.join(","),
-      caption: buildInstagramCaption(log),
+      caption: buildInstagramCaption({
+        type: log.type,
+        category: log.category,
+        title: log.title,
+        details: log.details,
+        insights: log.insights,
+      }),
       access_token: ACCESS_TOKEN,
     });
     if (typeof carousel.id !== "string") throw new Error("Instagramが投稿コンテナIDを返しませんでした");
