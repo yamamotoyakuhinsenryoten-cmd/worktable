@@ -13,7 +13,6 @@ export type InstagramLog = {
  *
  * 1. 入力されたカテゴリに対応するタグ一覧を参照します。
  * 2. 一致する一覧を固定タグとして返します。
- * 対応要件: R-03、R-04
  * @example category="焙煎" // => ["#コーヒー焙煎", "#自家焙煎", "#手鍋焙煎", "#コーヒー好き"]
  */
 const FIXED_TAGS: Record<string, string[]> = {
@@ -29,7 +28,6 @@ const FIXED_TAGS: Record<string, string[]> = {
  *
  * 1. 詳細欄から名前が一致する最初の項目を探します。
  * 2. 値を返し、該当項目がなければ空文字を返します。
- * 対応要件: R-05
  * @example detailValue({details:[{label:"産地",value:"ニカラグア"}]}, "産地") // => "ニカラグア"
  */
 function detailValue(log: Pick<InstagramLog, "details">, label: string) {
@@ -42,7 +40,6 @@ function detailValue(log: Pick<InstagramLog, "details">, label: string) {
  *
  * 1. 前後の空白を取り除きます。
  * 2. 句読点・記号・空白を取り除いた値を返します。
- * 対応要件: R-06、R-08
  * @example cleanTagValue(" ニカラグア・SHG ") // => "ニカラグアSHG"
  */
 function cleanTagValue(value: string) {
@@ -57,7 +54,6 @@ function cleanTagValue(value: string) {
  * 2. 縫物: 制作物・対象を選びます。染物: タイトルの「 #」より前と材質を選びます。
  * 3. コーヒー店: 店名を＠や括弧で分け、店名とエリアを選びます。
  * 4. コーヒー豆: 産地を「、」で分けて焙煎度を加えます。その他は空の一覧です。
- * 対応要件: R-05、R-07、R-09
  * @example dynamicTagValues({category:"コーヒー豆",details:[{label:"産地",value:"ブラジル、グアテマラ"},{label:"焙煎度",value:"中煎り"}]}) // => ["ブラジル", "グアテマラ", "中煎り"]
  */
 function dynamicTagValues(log: Pick<InstagramLog, "category" | "title" | "details">) {
@@ -90,7 +86,6 @@ function dynamicTagValues(log: Pick<InstagramLog, "category" | "title" | "detail
  * 2. 動的な値を整え、空欄と固定・動的間の重複を除いて追加します。
  * 3. 固定タグを残し、現在の固定タグ数を前提に合計30個まで動的タグを加えます。
  * Setは重複しない値を記録する仕組みで、大文字小文字をそろえて重複を見分けます。
- * 対応要件: R-03、R-04、R-06、R-10、R-11
  * @example buildTags({type:"work",category:"縫物",title:"記録",details:[{label:"制作物",value:"アロハシャツ"}]}) // => ["#手作り", "#ハンドメイド", "#手縫い", "#縫い物", "#アロハシャツ"]
  */
 function buildTags(log: Pick<InstagramLog, "type" | "category" | "title" | "details">) {
@@ -114,7 +109,6 @@ function buildTags(log: Pick<InstagramLog, "type" | "category" | "title" | "deta
  *
  * 1. 詳細と考察を従来の形式で本文にまとめます。
  * 2. タグを作り、ある場合は空行の後ろにスペース区切りで追加します。
- * 対応要件: R-01、R-02、R-12、R-13
  * @example buildInstagramCaption({type:"work",category:"焙煎",title:"記録",details:[{label:"産地",value:"ニカラグア"}],insights:[]}) // => "記録\n\n産地: ニカラグア\n\n#コーヒー焙煎 #自家焙煎 #手鍋焙煎 #コーヒー好き #ニカラグア"
  */
 export function buildInstagramCaption(log: Pick<InstagramLog, "type" | "category" | "title" | "details" | "insights">) {
