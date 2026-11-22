@@ -67,6 +67,13 @@
 - **コードで確認できる境界動作:** 空の値と整形後に空になった値はスキップされる。`lib/instagram.ts:52-56`。
 - **推測を含む:** 染物の方法名はタイトルの「スペース + #」より前から取得する。連番を含むサンプルはテストされているが、別形式のタイトル区切りは個別に確認されていない。`lib/instagram.ts:33-34`、`tests/instagram.test.mjs:24`。
 
+### 要件にない処理: developmentログ向けガード
+
+- 対象: `InstagramLog` の `type` に `development` を加えた変更（`lib/instagram.ts:3`）と、`buildTags` でdevelopmentの場合に空配列を返すガード（`lib/instagram.ts:97`）。
+- 内容: 要件の非対象であるdevelopmentログの投稿を防ぐための防御。
+- 動作への影響: 現在の投稿APIは `work` と `experience` 以外を受け付けない（`app/api/post-instagram/route.ts:81-83`）ため、投稿経由ではこのガードに到達しない。
+- 扱い: 要件の変更は行わず、この防御をそのまま残す。
+
 ## トークン使用量・作業回数
 
 - 照合の回数: 2回（初回照合、形式指摘後の再照合）
