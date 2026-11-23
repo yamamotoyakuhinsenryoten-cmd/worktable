@@ -11,13 +11,13 @@
 
 | ID | 判定 | 根拠 |
 |---|---|---|
-| R-01 | 実装済み | AES-256-GCM、12バイトIV、IV・タグ・暗号文をBase64化してドット区切りで保存・復号する。`lib/crypto.ts:3-4,29-35,45-55`。自動テストは`tests/instagram-token.test.mjs:9-15`。 |
+| R-01 | 実装済み | AES-256-GCM、12バイトIV、IV・タグ・暗号文をBase64化してドット区切りで保存・復号する。`lib/crypto.ts:3-4,29-35,45-55`。自動テストは`tests/instagram-token.test.mjs:10-16`。 |
 | R-02 | 一部 | `APP_ENCRYPTION_KEY`を読み込み32バイトを検証する。`lib/crypto.ts:13-18`。Vercel上の設定・Sensitive指定はコード差分にない。 |
 | R-03 | 実装済み | Cronを毎日18:00 UTCに設定。`vercel.json:2-6`。 |
-| R-04 | 実装済み | Bearer認証不一致時に401を返す。`app/api/cron/refresh-instagram-token/route.ts:13-18`。テストは`tests/instagram-token.test.mjs:17-31`。 |
+| R-04 | 実装済み | Bearer認証不一致時に401を返す。`app/api/cron/refresh-instagram-token/route.ts:13-18`。テストは`tests/instagram-token.test.mjs:18-32`。 |
 | R-05 | 実装済み | DBから現トークンを読み、復号してrefresh APIに渡す。`lib/instagram-token.ts:37-42,65-75,85-94`。 |
 | R-06 | 実装済み | 新トークンを暗号化し、UPSERTで値と`updated_at`を更新する。`lib/instagram-token.ts:51-56`。 |
-| R-07 | 実装済み | 更新・保存エラー時に失敗通知を試し、失敗結果を返す。`lib/instagram-token.ts:85-100`。refresh失敗時の保存値維持テストは`tests/instagram-token.test.mjs:33-45`。 |
+| R-07 | 実装済み | 更新・保存エラー時に失敗通知を試し、失敗結果を返す。`lib/instagram-token.ts:85-100`。refresh失敗時の保存値維持テストは`tests/instagram-token.test.mjs:34-46`。 |
 | R-08 | 一部 | Gmail SMTP/TLSと環境変数認証、指定宛先への成功・失敗通知コードを確認。`lib/mail.ts:3,13-18,41-65`。Vercel設定とメール到達は未確認。 |
 | R-09 | 実装済み | 投稿処理は`getInstagramToken()`から取得したDB復号トークンをAPI呼び出しに渡し、環境変数フォールバックはない。`app/api/post-instagram/route.ts:5,95-97,137-168`。 |
 | R-10 | 未実装 | `app_secrets`テーブル作成はある。`migrations/006_create_app_secrets.sql:1-5`。`worktable_app`作成および指定テーブル・todosシーケンスへの権限付与は差分にない。 |
@@ -25,9 +25,9 @@
 | R-12 | 実装済み | 初期トークンを環境変数から取得して暗号化し、DBへUPSERTするスクリプトがある。`scripts/init-instagram-token.ts:13-20`。マイグレーションにトークン値はない。 |
 | R-13 | 未実装 | 初回投入スクリプトは`INSTAGRAM_ACCESS_TOKEN`を参照する。`scripts/init-instagram-token.ts:14-16`。Vercel環境変数削除を行う設定・手順はブランチ差分にない。 |
 | R-14 | 未実装 | Vercel設定はこのリポジトリ差分に含まれず、`DATABASE_URL`の差替え、Sensitive指定、デプロイ後の正常動作を確認できない。 |
-| R-15 | 実装済み | `updated_at`から30日以上経過した時だけ更新する。`lib/instagram-token.ts:26-28,85-94`。29日skip・31日更新テストは`tests/instagram-token.test.mjs:47-62`。 |
+| R-15 | 実装済み | `updated_at`から30日以上経過した時だけ更新する。`lib/instagram-token.ts:26-28,85-94`。29日skip・31日更新テストは`tests/instagram-token.test.mjs:48-63`。 |
 | R-16 | 未実装 | `migrations/006_create_app_secrets.sql:1-5`にパスワード値はない。`scripts/init-instagram-token.ts:14-16`は`DATABASE_URL`と`INSTAGRAM_ACCESS_TOKEN`を環境変数から参照するだけで、DBパスワード値を含まない。Neonでの発行・パスワードマネージャー保管・Vercel接続文字列設定は差分にない。 |
-| R-17 | 実装済み | 保存失敗時に失敗通知し、成功扱いにしない。`lib/instagram-token.ts:85-100`。旧値維持・失敗通知テストは`tests/instagram-token.test.mjs:64-78`。 |
+| R-17 | 実装済み | 保存失敗時に失敗通知し、成功扱いにしない。`lib/instagram-token.ts:85-100`。旧値維持・失敗通知テストは`tests/instagram-token.test.mjs:65-79`。 |
 
 ## 3. 機械チェック
 
@@ -49,11 +49,11 @@ Google Fonts取得失敗はstashしたベースでも再現した。
 
 | 要件 | 判定 | 確認状況 |
 |---|---|---|
-| R-01 | 実装済み | 暗号化・復号と改変暗号文の復号失敗を確認。`tests/instagram-token.test.mjs:9-15` |
-| R-04 | 実装済み | 認証ヘッダーなし・不正値の401を確認。`tests/instagram-token.test.mjs:17-31` |
-| R-07 | 実装済み | refresh失敗時に保存値が変わらないことを確認。`tests/instagram-token.test.mjs:33-45` |
-| R-15 | 実装済み | 29日ではskip、31日では更新することを確認。`tests/instagram-token.test.mjs:47-62` |
-| R-17 | 実装済み | refresh成功後のDB保存失敗時に旧値維持・失敗通知を確認。`tests/instagram-token.test.mjs:64-78` |
+| R-01 | 実装済み | 暗号化・復号と改変暗号文の復号失敗を確認。`tests/instagram-token.test.mjs:10-16` |
+| R-04 | 実装済み | 認証ヘッダーなし・不正値の401を確認。`tests/instagram-token.test.mjs:18-32` |
+| R-07 | 実装済み | refresh失敗時に保存値が変わらないことを確認。`tests/instagram-token.test.mjs:34-46` |
+| R-15 | 実装済み | 29日ではskip、31日では更新することを確認。`tests/instagram-token.test.mjs:48-63` |
+| R-17 | 実装済み | refresh成功後のDB保存失敗時に旧値維持・失敗通知を確認。`tests/instagram-token.test.mjs:65-79` |
 
 ### 手動確認
 
