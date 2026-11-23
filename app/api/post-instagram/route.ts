@@ -10,6 +10,13 @@ const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.instagram.com/${API_VERSION}`;
 const activePosts = new Set<string>();
 
+/**
+ * Instagram Graph APIへ投稿用リクエストを送り、応答を検証します。
+ *
+ * 1. 指定パラメーターでAPIリクエストを作成します。
+ * 2. HTTPエラーを安全な説明に置き換え、応答データを返します。
+ * @example await requestInstagram("/me/media", { access_token: token })
+ */
 async function requestInstagram(endpoint: string, params: Record<string, string>) {
   const url = new URL(`${BASE_URL}${endpoint}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -25,6 +32,13 @@ async function requestInstagram(endpoint: string, params: Record<string, string>
   return data ?? {};
 }
 
+/**
+ * 投稿に使うInstagramアカウントIDを取得します。
+ *
+ * 1. Graph APIの/meへ問い合わせます。
+ * 2. user_idを確認し、取得できなければエラーにします。
+ * @example await getInstagramUserId(token) // => "account-id"
+ */
 async function getInstagramUserId(accessToken: string) {
   const url = new URL(`${BASE_URL}/me`);
   url.searchParams.set("fields", "user_id,username");
@@ -40,6 +54,13 @@ async function getInstagramUserId(accessToken: string) {
   return data.user_id;
 }
 
+/**
+ * 投稿コンテナが公開可能な状態になるまで状態を確認します。
+ *
+ * 1. APIへ状態を問い合わせます。
+ * 2. 完了なら終了し、失敗または規定回数超過ならエラーにします。
+ * @example await waitForFinished("container-id", token) // => undefined
+ */
 async function waitForFinished(containerId: string, accessToken: string) {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   for (let attempt = 0; attempt < 30; attempt++) {
@@ -63,6 +84,14 @@ async function waitForFinished(containerId: string, accessToken: string) {
   throw new Error("Instagramの投稿コンテナがタイムアウトしました");
 }
 
+/**
+ * ログの画像をカルーセル投稿し、結果をJSONで返します。
+ *
+ * 1. 入力と対象ログを確認し、投稿中の重複を防ぎます。
+ * 2. DB保存トークンで画像コンテナを作成・公開します。
+ * 3. 成否を返し、処理中マークを解除します。
+ * @example POST(new Request(url, { method: "POST", body: json }))
+ */
 export async function POST(request: Request) {
   let accessToken = "";
   try {

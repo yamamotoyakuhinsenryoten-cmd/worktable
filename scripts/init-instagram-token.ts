@@ -3,6 +3,13 @@ import "dotenv/config";
 import { encryptSecret } from "../lib/crypto.ts";
 import { neon } from "@neondatabase/serverless";
 
+/**
+ * 環境変数の初期トークンを暗号化してDBへUPSERTします。
+ *
+ * 1. 接続先と初期トークンの有無を確認します。
+ * 2. トークンを暗号化し、保存時刻とともに登録します。
+ * @example initializeInstagramToken() // => 1回限りの初期投入
+ */
 async function initializeInstagramToken() {
   const databaseUrl = process.env.DATABASE_URL;
   const token = process.env.INSTAGRAM_ACCESS_TOKEN;

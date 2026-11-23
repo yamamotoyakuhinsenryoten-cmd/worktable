@@ -3,6 +3,13 @@ import { isAuthorizedCronRequest, runInstagramTokenRefresh } from "../../../../l
 
 export const runtime = "nodejs";
 
+/**
+ * Cron共有シークレットを検証し、条件に応じて更新を実行します。
+ *
+ * 1. Authorizationヘッダーを確認します。
+ * 2. 不一致なら401、一致なら更新結果を返します。
+ * @example GET(new Request(url, { headers: { authorization: "Bearer …" } }))
+ */
 export async function GET(request: Request) {
   if (!isAuthorizedCronRequest(request.headers.get("authorization"), process.env.CRON_SECRET)) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });

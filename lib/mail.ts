@@ -2,6 +2,14 @@ import { connect } from "node:tls";
 
 const RECIPIENT = "seekeinosok@gmail.com";
 
+/**
+ * Gmail SMTPへ接続し、トークン更新の結果を指定先へ通知します。
+ *
+ * 1. 環境変数から送信者とアプリパスワードを読み取ります。
+ * 2. TLS接続でSMTP認証とメール送信を行います。
+ * 3. DATA終端後のSMTP応答を確認して完了します。
+ * @example await sendTokenRefreshEmail(true, "Instagramトークンを更新しました")
+ */
 export async function sendTokenRefreshEmail(success: boolean, detail: string) {
   const user = process.env.GMAIL_USER;
   const password = process.env.GMAIL_APP_PASSWORD;
