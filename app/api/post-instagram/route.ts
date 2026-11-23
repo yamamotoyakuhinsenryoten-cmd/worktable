@@ -2,14 +2,21 @@ import { NextResponse } from "next/server";
 import { getLog, LogsApiError } from "@/lib/logs-api";
 import { buildInstagramCaption, safeExternalError, selectInstagramImages, type InstagramLog } from "@/lib/instagram";
 import { getMediaUrl } from "@/lib/media";
+import { getInstagramToken } from "@/lib/instagram-token";
 
 export const runtime = "nodejs";
 
-const ACCESS_TOKEN = process.env.INSTAGRAM_ACCESS_TOKEN ?? "";
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.instagram.com/${API_VERSION}`;
 const activePosts = new Set<string>();
 
+/**
+ * Instagram Graph APIへ投稿用リクエストを送り、応答を検証します。
+ *
+ * 1. 指定パラメーターでAPIリクエストを作成します。
+ * 2. HTTPエラーを安全な説明に置き換え、応答データを返します。
+ * @example await requestInstagram("/me/media", { access_token: token })
+ */
 async function requestInstagram(endpoint: string, params: Record<string, string>) {
   const url = new URL(`${BASE_URL}${endpoint}`);
   for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
@@ -25,10 +32,17 @@ async function requestInstagram(endpoint: string, params: Record<string, string>
   return data ?? {};
 }
 
-async function getInstagramUserId() {
+/**
+ * 投稿に使うInstagramアカウントIDを取得します。
+ *
+ * 1. Graph APIの/meへ問い合わせます。
+ * 2. user_idを確認し、取得できなければエラーにします。
+ * @example await getInstagramUserId(token) // => "account-id"
+ */
+async function getInstagramUserId(accessToken: string) {
   const url = new URL(`${BASE_URL}/me`);
   url.searchParams.set("fields", "user_id,username");
-  url.searchParams.set("access_token", ACCESS_TOKEN);
+  url.searchParams.set("access_token", accessToken);
   const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   const data = await response.json().catch(() => null) as Record<string, unknown> | null;
   if (!response.ok || typeof data?.user_id !== "string") {
@@ -40,12 +54,19 @@ async function getInstagramUserId() {
   return data.user_id;
 }
 
-async function waitForFinished(containerId: string) {
+/**
+ * 投稿コンテナが公開可能な状態になるまで状態を確認します。
+ *
+ * 1. APIへ状態を問い合わせます。
+ * 2. 完了なら終了し、失敗または規定回数超過ならエラーにします。
+ * @example await waitForFinished("container-id", token) // => undefined
+ */
+async function waitForFinished(containerId: string, accessToken: string) {
   await new Promise((resolve) => setTimeout(resolve, 1000));
   for (let attempt = 0; attempt < 30; attempt++) {
     const url = new URL(`${BASE_URL}/${containerId}`);
     url.searchParams.set("fields", "status_code,status");
-    url.searchParams.set("access_token", ACCESS_TOKEN);
+    url.searchParams.set("access_token", accessToken);
     const response = await fetch(url, { signal: AbortSignal.timeout(30_000) });
     const data = await response.json().catch(() => null) as Record<string, unknown> | null;
     if (!response.ok) {
@@ -63,11 +84,16 @@ async function waitForFinished(containerId: string) {
   throw new Error("Instagramの投稿コンテナがタイムアウトしました");
 }
 
+/**
+ * ログの画像をカルーセル投稿し、結果をJSONで返します。
+ *
+ * 1. 入力と対象ログを確認し、投稿中の重複を防ぎます。
+ * 2. DB保存トークンで画像コンテナを作成・公開します。
+ * 3. 成否を返し、処理中マークを解除します。
+ * @example POST(new Request(url, { method: "POST", body: json }))
+ */
 export async function POST(request: Request) {
-  if (!ACCESS_TOKEN) {
-    return NextResponse.json({ error: "Instagram投稿のサーバー設定がありません" }, { status: 503 });
-  }
-
+  let accessToken = "";
   try {
     const body = await request.json() as { slug?: unknown; logType?: unknown };
     const slug = body.slug;
@@ -108,13 +134,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "追加する画像がありません" }, { status: 400 });
     }
 
-    const userId = await getInstagramUserId();
+    accessToken = await getInstagramToken();
+    const userId = await getInstagramUserId(accessToken);
     const children: string[] = [];
     for (const image of images) {
       const result = await requestInstagram(`/${userId}/media`, {
         image_url: getMediaUrl(image.src),
         is_carousel_item: "true",
-        access_token: ACCESS_TOKEN,
+        access_token: accessToken,
       });
       if (typeof result.id !== "string") throw new Error("Instagramが画像コンテナIDを返しませんでした");
       children.push(result.id);
@@ -130,14 +157,14 @@ export async function POST(request: Request) {
         details: log.details,
         insights: log.insights,
       }),
-      access_token: ACCESS_TOKEN,
+      access_token: accessToken,
     });
     if (typeof carousel.id !== "string") throw new Error("Instagramが投稿コンテナIDを返しませんでした");
 
-    await waitForFinished(carousel.id);
+    await waitForFinished(carousel.id, accessToken);
     const published = await requestInstagram(`/${userId}/media_publish`, {
       creation_id: carousel.id,
-      access_token: ACCESS_TOKEN,
+      access_token: accessToken,
     });
     if (typeof published.id !== "string") throw new Error("Instagramが投稿IDを返しませんでした");
 
@@ -153,7 +180,7 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error("Instagram post error:", error instanceof Error ? error.name : "unknown");
     return NextResponse.json({
-      error: safeExternalError(error, [ACCESS_TOKEN, process.env.LOG_API_KEY ?? ""]),
+      error: safeExternalError(error, [accessToken, process.env.LOG_API_KEY ?? ""]),
     }, { status: 500 });
   }
 }
