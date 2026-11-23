@@ -35,10 +35,10 @@
 
 | チェック | 初回 | stashしたベース | 修正後・最終 |
 |---|---|---|---|
-| `tsc` | TS5097 | 成功 | 成功 |
+| `npx tsc --noEmit` | TS5097 | 成功 | 成功 |
 | `npm test` | `ERR_MODULE_NOT_FOUND` | 44件成功 | 50件成功 |
-| `build` | Google Fonts取得失敗 | 同じGoogle Fonts取得失敗 | Google Fonts取得失敗 |
-| lint | 成功 | — | 成功 |
+| `npm run build` | Google Fonts取得失敗 | 同じGoogle Fonts取得失敗 | Google Fonts取得失敗 |
+| `npm run lint` | 成功 | — | 成功 |
 | `git diff --check` | 成功 | — | 成功 |
 
 Google Fonts取得失敗はstashしたベースでも再現した。
