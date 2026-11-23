@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomBytes } from "node:crypto";
 import { decryptSecret, encryptSecret } from "../lib/crypto.ts";
 import { isAuthorizedCronRequest, refreshInstagramToken, shouldRefreshToken } from "../lib/instagram-token.ts";
 import { GET as cronGet } from "../app/api/cron/refresh-instagram-token/route.ts";
 
-process.env.APP_ENCRYPTION_KEY ??= Buffer.alloc(32, 7).toString("base64");
+process.env.APP_ENCRYPTION_KEY ??= randomBytes(32).toString("base64");
 
 test("R-01 encrypts and decrypts tokens and rejects a changed ciphertext", () => {
   const encrypted = encryptSecret("test-token-value");
