@@ -1125,10 +1125,10 @@ export default function Home() {
               >
                 {isGeneratingLog ? "生成中…" : "ログを生成"}
               </button>
-              <button type="button" onClick={handleAddMedia} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={handleAddMedia} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="hidden md:block rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
                 {isAddingMedia ? "追加中…" : "メディアを追加"}
               </button>
-              <button type="button" onClick={handlePostInstagram} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" onClick={handlePostInstagram} disabled={!activeSession || isAddingMedia || isPostingInstagram} className="hidden md:block rounded-xl border border-zinc-300 px-3 py-2 text-sm hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-40">
                 {isPostingInstagram ? "Instagram投稿中…" : "Instagram投稿"}
               </button>
             </div>
